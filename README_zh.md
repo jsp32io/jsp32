@@ -35,7 +35,7 @@ JSP32 是面向 ESP32-S3 的 JavaScript 可编程设备固件。你可以用脚�
 | --- | --- |
 | 内置网页 | 查看设备信息、配置网络、浏览实时寄存器、配置插件和 MQTT |
 | [桌面控制台](gui/README.md) | 发现局域网设备、监控寄存器、上传下载插件 ZIP、管理插件配置 |
-| [命令行客户端](cli/README.md) | 脚本求值、实时日志、文件和寄存器操作、NVS 管理、固件更新 |
+| [命令行客户端](cli/README.md) | 脚本求值、实时日志、文件和寄存器操作、NVS 管理、串口烧录和 OTA 固件更新 |
 | [HTTP API](components/app_http_server/README.md) | 将设备管理能力接入其他工具或系统 |
 
 网页入口为 `/`、`/network`、`/registers`、`/plugins` 和 `/mqtt`。

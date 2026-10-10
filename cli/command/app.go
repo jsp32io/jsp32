@@ -28,7 +28,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		a.Stderr = os.Stderr
 	}
 	if len(a.Commands) == 0 {
-		a.Commands = []Command{&InfoCommand{}, &ManCommand{}, &EvalCommand{}, &ConsoleCommand{}, &FSCommand{}, &RegCommand{}, &NVSCommand{}, &OTACommand{}, &RebootCommand{}}
+		a.Commands = []Command{&InfoCommand{}, &ManCommand{}, &EvalCommand{}, &ConsoleCommand{}, &FSCommand{}, &RegCommand{}, &NVSCommand{}, &OTACommand{}, &FlashCommand{}, &RebootCommand{}}
 	}
 
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
@@ -52,7 +52,7 @@ func (a *App) printHelp() {
 	}
 	fmt.Fprintln(a.Stdout)
 	fmt.Fprintln(a.Stdout, "Environment:")
-	fmt.Fprintln(a.Stdout, "  JSP32_BASE_URL  Device HTTP(S) URL; required for device commands.")
+	fmt.Fprintln(a.Stdout, "  JSP32_BASE_URL  Device HTTP(S) URL; required for HTTP commands.")
 	fmt.Fprintln(a.Stdout, "                  Example: http://192.168.1.20")
 	fmt.Fprintln(a.Stdout, "                  /api/v1 is appended unless the URL ends in /api/vN.")
 	fmt.Fprintln(a.Stdout)

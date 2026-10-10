@@ -1,11 +1,15 @@
 # jsp32 CLI
 
-The CLI talks to the versioned HTTP API exposed by a JSP32 device. Set the
+The CLI supports native Go serial flashing and the versioned HTTP API exposed
+by a JSP32 device. Build with Go 1.25 or later. Set the
 device URL through `JSP32_BASE_URL`; when its path does not end in an explicit
 `/api/vN` version, `/api/v1` is appended automatically.
 
 ```sh
 go build -o jsp32 .
+
+./jsp32 flash -p /dev/ttyUSB0 ../build/jsp32.bin
+./jsp32 flash -p /dev/ttyUSB0 ../build/factory.bin
 
 JSP32_BASE_URL=http://192.168.1.20 ./jsp32 info
 JSP32_BASE_URL=http://192.168.1.20 ./jsp32 eval "1 + 1"
@@ -31,6 +35,60 @@ JSP32_BASE_URL=http://192.168.1.20 ./jsp32 nvs get user boot_count
 JSP32_BASE_URL=http://192.168.1.20 ./jsp32 ota status
 JSP32_BASE_URL=http://192.168.1.20 ./jsp32 ota upload ../build/jsp32.bin
 JSP32_BASE_URL=http://192.168.1.20 ./jsp32 reboot -wait
+```
+
+`flash -p PORT firmware.bin` burns firmware over serial without Python or a
+device URL. It validates the ESP32-S3 image headers, segment checksums, image
+SHA-256 and factory partition-table MD5 before connecting. Classification uses
+image contents, so renaming a file does not change its destination. A merged
+factory image (including initial storage) is written at `0x0`. For an application
+image, the CLI reads the device's partition table and both `otadata` records,
+selects the opposite OTA slot, and reports its address. If `ota_0` is selected,
+it writes `ota_1` (normally `0x320000`); if `ota_1` is selected, it writes `ota_0`
+(normally `0x20000`). Only after the image MD5 passes does it update and verify
+the other boot record to select the new slot on the next boot. The previous boot
+record is preserved. Serial-flashed firmware is marked VALID after successful
+verification and requires no `jsp32 ota confirm`. It does not undergo the
+bootloader's first-boot confirmation/automatic rollback cycle. An existing
+PENDING_VERIFY selection can also be replaced through serial flashing.
+HTTP `ota upload` continues to use the confirmation and rollback workflow.
+
+Application updates require the project's two-slot layout without a factory
+application partition. Erased OTA records imply `ota_0`; after verifying the
+new image, the CLI seeds a confirmed `ota_0` fallback record before activating
+`ota_1`. Unusable non-erased records cause an error instead of guessing a slot.
+OTA metadata is written in separate 4 KiB sectors, independent of `-align`;
+the Flash must support 4 KiB erases at the metadata addresses. Initial deployment
+requires a factory image. Factory flashing
+replaces the configuration and filesystem regions included in the image. A
+trimmed factory image leaves the omitted tail untouched and requires blank or
+previously erased Flash for a clean initial deployment.
+
+Connection status, live transfer progress and verification status go to standard
+error; the success result goes to standard output only after an explicit device
+MD5 check passes. Compressed-transfer percentages estimate image progress from
+acknowledged compressed blocks; 100% transfer precedes final verification.
+Images are padded with `0xFF` to the alignment selected by `-align SIZE`,
+defaulting to `64K` for S25FL128S erase geometry. Sizes accept bytes, hexadecimal,
+or binary K/M suffixes: `4096`, `0x10000`, `4K`, `64KiB`, `128K`. The alignment
+must be a power of two from 4 KiB to 16 MiB. The destination address must also
+meet this alignment, and the padded image must fit its partition and Flash.
+For example, use `-align 4K` for a Flash supported by the stub with 4 KiB erases.
+This option controls padding and address validation; it does not change the
+Flash chip's erase geometry or the stub's erase commands.
+The default transfer baud rate is 115200; `-b 460800` selects a higher rate when
+the serial transceiver and connection support it.
+
+`-reset default` uses DTR/RTS with the board's automatic download circuit. For
+UART0 through MAX3232 with only TX/RX, enter download mode using BOOT/RESET and
+use `-reset no-reset`; press RESET again after successful flashing. For native
+USB Serial/JTAG use `-reset usb-jtag`. `-reset auto` tries the available reset
+strategies. Close serial monitors before flashing. Interrupting the command
+closes the serial connection and stops the operation.
+
+```sh
+./jsp32 flash -p /dev/ttyUSB0 -reset no-reset ../build/jsp32.bin
+./jsp32 flash -p /dev/ttyACM0 -reset usb-jtag ../build/factory.bin
 ```
 
 `info` queries `GET /api/v1/system/info` and prints the complete response as

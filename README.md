@@ -46,7 +46,7 @@ Network settings are saved on the device and restored on reboot.
 | --- | --- |
 | Built-in web interface | Device information, network setup, live registers, plugin and MQTT configuration |
 | [Desktop console](gui/README.md) | Local device discovery, register monitoring, plugin ZIP uploads and downloads, plugin configuration |
-| [CLI](cli/README.md) | Script evaluation, live logs, files and registers, NVS management, firmware updates |
+| [CLI](cli/README.md) | Script evaluation, live logs, files and registers, NVS management, serial flashing and OTA firmware updates |
 | [HTTP API](components/app_http_server/README.md) | Integrating device management with your own tools and systems |
 
 Web pages are available at `/`, `/network`, `/registers`, `/plugins`, and `/mqtt`.
