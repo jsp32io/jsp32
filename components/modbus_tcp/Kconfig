@@ -1,0 +1,10 @@
+menu "Modbus TCP server"
+    config MODBUS_TCP_MAX_CLIENTS
+        int "Maximum simultaneous Modbus TCP clients"
+        default 2
+        range 1 8
+    config MODBUS_TCP_TASK_STACK_SIZE
+        int "Modbus TCP task stack size"
+        default 6144
+        range 4096 16384
+endmenu

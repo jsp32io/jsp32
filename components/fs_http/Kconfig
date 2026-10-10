@@ -1,0 +1,36 @@
+menu "Filesystem HTTP API"
+
+    config FS_HTTP_ENABLED
+        bool "Enable the filesystem HTTP API"
+        default y
+
+    config FS_HTTP_MAX_FILE_SIZE
+        int "Maximum uploaded file size"
+        depends on FS_HTTP_ENABLED
+        default 524288
+        range 1024 4194304
+
+    config FS_HTTP_MAX_CONCURRENT_REQUESTS
+        int "Maximum concurrent file transfers"
+        depends on FS_HTTP_ENABLED
+        default 2
+        range 1 4
+
+    config FS_HTTP_TASK_STACK_SIZE
+        int "File transfer worker stack size"
+        depends on FS_HTTP_ENABLED
+        default 6144
+        range 4096 16384
+
+    config FS_HTTP_TASK_PRIORITY
+        int "File transfer worker priority"
+        depends on FS_HTTP_ENABLED
+        default 4
+        range 1 24
+
+    config FS_HTTP_PROTECT_MAIN_JS
+        bool "Prevent deletion of /main.js"
+        depends on FS_HTTP_ENABLED
+        default y
+
+endmenu

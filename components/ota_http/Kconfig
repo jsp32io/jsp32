@@ -1,0 +1,25 @@
+menu "OTA HTTP API"
+
+    config OTA_HTTP_ENABLED
+        bool "Enable the OTA HTTP API"
+        default y
+
+    config OTA_HTTP_TASK_STACK_SIZE
+        int "OTA upload worker stack size"
+        depends on OTA_HTTP_ENABLED
+        default 8192
+        range 4096 16384
+
+    config OTA_HTTP_TASK_PRIORITY
+        int "OTA upload worker priority"
+        depends on OTA_HTTP_ENABLED
+        default 4
+        range 1 24
+
+    config OTA_HTTP_REBOOT_DELAY_MS
+        int "Delay before reboot after responding"
+        depends on OTA_HTTP_ENABLED
+        default 500
+        range 100 5000
+
+endmenu

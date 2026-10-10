@@ -1,0 +1,6 @@
+menu "JavaScript PCNT"
+    config JS_PCNT_ENABLED
+        bool "Enable the JavaScript pulse counter API"
+        depends on IDF_TARGET_ESP32S3
+        default y
+endmenu

@@ -1,0 +1,19 @@
+menu "JavaScript registers"
+
+    config JS_REGISTERS_ENABLED
+        bool "Enable the JavaScript registers API"
+        default y
+
+    config JS_REGISTERS_MAX_WATCHERS
+        int "Maximum JavaScript register watchers"
+        depends on JS_REGISTERS_ENABLED
+        default 32
+        range 1 256
+
+    config JS_REGISTERS_MAX_WATCH_ADDRESSES
+        int "Maximum addresses per register watcher"
+        depends on JS_REGISTERS_ENABLED
+        default 64
+        range 1 1024
+
+endmenu

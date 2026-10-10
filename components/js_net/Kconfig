@@ -1,0 +1,37 @@
+menu "JavaScript network"
+    config JS_NET_ENABLED
+        bool "Enable the JavaScript network API"
+        default y
+
+    config JS_NET_TLS_ENABLED
+        bool "Enable verified TLS client connections"
+        depends on JS_NET_ENABLED && MBEDTLS_CERTIFICATE_BUNDLE && ESP_TLS_USING_MBEDTLS
+        select MBEDTLS_HAVE_TIME
+        select MBEDTLS_HAVE_TIME_DATE
+        default y
+
+    config JS_NET_MAX_TLS_CONNECTIONS
+        int "Maximum TLS connections, including handshakes"
+        default 2
+        range 1 16
+
+    config JS_NET_MAX_CONNECTIONS
+        int "Maximum JS connections and listeners"
+        default 16
+        range 1 64
+
+    config JS_NET_MAX_PENDING
+        int "Maximum pending socket operations"
+        default 32
+        range 4 128
+
+    config JS_NET_MAX_TRANSFER_SIZE
+        int "Maximum bytes per read or write"
+        default 16384
+        range 256 65536
+
+    config JS_NET_BUFFER_LIMIT
+        int "Total pending native I/O buffer budget (bytes)"
+        default 65536
+        range 4096 524288
+endmenu

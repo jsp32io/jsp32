@@ -1,0 +1,46 @@
+menu "Network manager"
+
+    config NETWORK_AP_PREFIX
+        string "Default device AP prefix"
+        default "JSP32"
+
+    config NETWORK_AP_MAX_CONNECTIONS
+        int "Maximum AP clients"
+        default 4
+        range 1 10
+
+    config NETWORK_CONNECT_TIMEOUT_MS
+        int "Station connection timeout (ms)"
+        default 30000
+        range 5000 120000
+
+    config NETWORK_MAX_RETRIES
+        int "Station retries before AP recovery"
+        default 5
+        range 1 20
+
+    config NETWORK_SCAN_MAX_RESULTS
+        int "Maximum scan results"
+        default 20
+        range 1 50
+
+    config NETWORK_HTTP_MAX_BODY
+        int "Maximum network request body"
+        default 1024
+        range 128 2048
+
+    config NETWORK_TASK_STACK_SIZE
+        int "Network manager task stack size"
+        default 6144
+        range 4096 16384
+
+    config NETWORK_MANAGER_MAX_TX_POWER_QDBM
+        int "Maximum Wi-Fi transmit power (quarter dBm)"
+        range 8 80
+        default 80
+        help
+            The tested S25FL128S board completed an OTA update at 52 (13 dBm).
+            An upload at 60 (15 dBm) failed with Flash erase and program
+            errors. Other boards need their own OTA reliability test.
+
+endmenu

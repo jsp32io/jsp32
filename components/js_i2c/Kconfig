@@ -1,0 +1,37 @@
+menu "JavaScript I2C"
+
+    config JS_I2C_ENABLED
+        bool "Enable the JavaScript I2C API"
+        default y
+
+    config JS_I2C_MAX_DEVICES_PER_BUS
+        int "Maximum devices per I2C bus"
+        depends on JS_I2C_ENABLED
+        default 16
+        range 1 64
+
+    config JS_I2C_MAX_PENDING
+        int "Maximum pending operations per I2C bus"
+        depends on JS_I2C_ENABLED
+        default 16
+        range 1 64
+
+    config JS_I2C_MAX_TRANSFER_SIZE
+        int "Maximum bytes per I2C read or write phase"
+        depends on JS_I2C_ENABLED
+        default 4096
+        range 1 65536
+
+    config JS_I2C_TASK_STACK_SIZE
+        int "I2C worker task stack size"
+        depends on JS_I2C_ENABLED
+        default 3072
+        range 2048 8192
+
+    config JS_I2C_TASK_PRIORITY
+        int "I2C worker task priority"
+        depends on JS_I2C_ENABLED
+        default 5
+        range 1 24
+
+endmenu

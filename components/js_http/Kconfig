@@ -1,0 +1,77 @@
+menu "JavaScript HTTP API"
+
+    config JS_HTTP_MAX_SSE_CLIENTS
+        int "Maximum console SSE clients"
+        default 2
+        range 1 8
+        help
+            The effective limit always leaves at least one HTTP socket free.
+
+    config JS_HTTP_SSE_TASK_STACK_SIZE
+        int "Console SSE task stack size"
+        default 6144
+        range 4096 16384
+
+    config JS_HTTP_SSE_TASK_PRIORITY
+        int "Console SSE task priority"
+        default 4
+        range 1 24
+
+    config JS_HTTP_SSE_HEARTBEAT_MS
+        int "Console SSE heartbeat interval (ms)"
+        default 15000
+        range 1000 60000
+
+    config JS_HTTP_EVAL_ENABLED
+        bool "Enable the JavaScript eval HTTP API"
+        default y
+
+    config JS_HTTP_MAX_PENDING_EVALS
+        int "Maximum concurrent eval requests"
+        depends on JS_HTTP_EVAL_ENABLED
+        default 2
+        range 1 4
+
+    config JS_HTTP_EVAL_MAX_BODY_SIZE
+        int "Maximum eval request body size"
+        depends on JS_HTTP_EVAL_ENABLED
+        default 12288
+        range 1024 65536
+
+    config JS_HTTP_EVAL_MAX_SOURCE_SIZE
+        int "Maximum JavaScript source size"
+        depends on JS_HTTP_EVAL_ENABLED
+        default 8192
+        range 256 32768
+
+    config JS_HTTP_EVAL_MAX_RESULT_SIZE
+        int "Maximum serialized eval result size"
+        depends on JS_HTTP_EVAL_ENABLED
+        default 16384
+        range 1024 65536
+
+    config JS_HTTP_EVAL_DEFAULT_TIMEOUT_MS
+        int "Default eval timeout (ms)"
+        depends on JS_HTTP_EVAL_ENABLED
+        default 5000
+        range 100 30000
+
+    config JS_HTTP_EVAL_MAX_TIMEOUT_MS
+        int "Maximum eval timeout (ms)"
+        depends on JS_HTTP_EVAL_ENABLED
+        default 30000
+        range 1000 120000
+
+    config JS_HTTP_EVAL_TASK_STACK_SIZE
+        int "Eval HTTP worker task stack size"
+        depends on JS_HTTP_EVAL_ENABLED
+        default 6144
+        range 4096 16384
+
+    config JS_HTTP_EVAL_TASK_PRIORITY
+        int "Eval HTTP worker task priority"
+        depends on JS_HTTP_EVAL_ENABLED
+        default 4
+        range 1 24
+
+endmenu

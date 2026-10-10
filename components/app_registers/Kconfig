@@ -1,0 +1,33 @@
+menu "Application registers"
+
+    config APP_REGISTERS_X_COUNT
+        int "X input bit count"
+        default 256
+        range 1 65535
+
+    config APP_REGISTERS_Y_COUNT
+        int "Y output bit count"
+        default 256
+        range 1 65535
+
+    config APP_REGISTERS_M_COUNT
+        int "M internal bit count"
+        default 1024
+        range 1 65535
+
+    config APP_REGISTERS_D_COUNT
+        int "D data word count"
+        default 2048
+        range 1 65535
+
+    config APP_REGISTERS_MAX_TRANSACTION
+        int "Maximum registers per atomic transaction"
+        default 256
+        range 1 4096
+
+    config APP_REGISTERS_MAX_SUBSCRIBERS
+        int "Maximum native change subscribers"
+        default 8
+        range 1 64
+
+endmenu

@@ -1,0 +1,13 @@
+menu "JavaScript GPIO"
+
+    config JS_GPIO_ENABLED
+        bool "Enable the JavaScript GPIO API"
+        default y
+
+    config JS_GPIO_MAX_WATCHERS
+        int "Maximum JavaScript GPIO watchers"
+        depends on JS_GPIO_ENABLED
+        default 32
+        range 1 256
+
+endmenu

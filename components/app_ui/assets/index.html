@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JSP32</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <div class="header-start"><button id="menu-toggle" class="menu-toggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="打开导航菜单">菜单</button><a class="brand" href="/">JSP32</a></div>
+    <span id="connection" class="muted" role="status">正在连接</span>
+  </header>
+  <aside id="sidebar" class="sidebar">
+    <nav aria-label="主导航"><a href="/" id="overview-tab" aria-current="page">概览</a><a href="/network" id="network-tab">网络</a><a href="/registers" id="registers-tab">寄存器</a><a href="/plugins" id="plugins-tab">插件</a><a href="/mqtt" id="mqtt-tab">MQTT</a></nav>
+  </aside>
+  <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭导航菜单" tabindex="-1" hidden></button>
+  <main>
+    <section id="overview-page" aria-labelledby="overview-title">
+      <div class="heading"><div class="heading-title"><h1 id="overview-title">概览</h1><p id="overview-message" class="message title-status" role="status"></p></div><button id="refresh-info" type="button">刷新</button></div>
+      <div id="summary" class="summary"></div>
+      <div id="system-info"></div>
+    </section>
+    <section id="network-page" aria-labelledby="network-title" hidden>
+      <div class="heading"><div class="heading-title"><h1 id="network-title">网络</h1><p id="network-message" class="message title-status" role="status"></p></div></div>
+      <section class="panel" aria-label="当前网络状态"><div class="heading compact"><h2>当前状态</h2><span id="network-state" class="muted">正在读取</span></div><dl id="network-status"></dl></section>
+      <form id="network-form" autocomplete="off">
+        <fieldset class="panel"><legend>运行模式</legend>
+          <div class="modes">
+            <label><input type="radio" name="mode" value="ap" checked><span>仅 AP<small>直连设备热点</small></span></label>
+            <label><input type="radio" name="mode" value="sta"><span>仅 STA<small>接入外部 Wi-Fi</small></span></label>
+            <label><input type="radio" name="mode" value="apsta"><span>APSTA<small>热点与 Wi-Fi 同时开启</small></span></label>
+          </div>
+        </fieldset>
+        <fieldset id="ap-fields" class="panel"><legend>设备热点 · AP</legend>
+          <label class="field">热点名称<input id="ap-ssid" maxlength="32" required></label>
+          <div class="choices"><label><input type="radio" name="ap-auth" value="open" checked>匿名开放</label><label><input type="radio" name="ap-auth" value="protected">密码保护</label></div>
+          <label id="ap-password-field" class="field" hidden>热点密码<input id="ap-password" type="password" maxlength="63" autocomplete="new-password"><small id="ap-password-hint">8–63 个字符</small></label>
+        </fieldset>
+        <fieldset id="sta-fields" class="panel" hidden disabled><legend>外部 Wi-Fi · STA</legend>
+          <div class="heading compact"><button id="scan" type="button">扫描</button></div>
+          <p id="scan-hint" class="muted hint"></p><div id="networks" class="networks"></div>
+          <label class="field">网络名称<input id="sta-ssid" maxlength="32" required></label>
+          <label class="check"><input id="sta-open" type="checkbox">此网络无需密码</label>
+          <label id="sta-password-field" class="field">Wi-Fi 密码<input id="sta-password" type="password" maxlength="64" autocomplete="new-password"><small id="sta-password-hint">输入网络密码</small></label>
+        </fieldset>
+        <div class="actions"><button id="apply" class="primary" type="submit" disabled>应用更改</button></div>
+      </form>
+    </section>
+    <section id="mqtt-page" aria-labelledby="mqtt-title" hidden>
+      <div class="heading"><div class="heading-title"><h1 id="mqtt-title">MQTT</h1><p id="mqtt-message" class="message title-status" role="status" aria-live="polite"></p></div><div class="plugins-heading-actions"><button id="refresh-mqtt" type="button">刷新</button><button id="reboot-mqtt" type="button">重启设备</button></div></div>
+      <section class="panel"><h2>连接状态</h2><div id="mqtt-status"></div></section>
+      <form id="mqtt-form" autocomplete="off"><div id="mqtt-config"></div><div class="actions"><button id="save-mqtt" class="primary" type="submit" disabled>保存配置</button></div></form>
+    </section>
+    <section id="plugins-page" aria-labelledby="plugins-title" hidden>
+      <div class="heading"><div class="heading-title"><h1 id="plugins-title">插件</h1><p id="plugins-message" class="message title-status" role="status" aria-live="polite"></p></div><div class="plugins-heading-actions"><button id="refresh-plugins" type="button">刷新</button><button id="reboot-plugins" type="button">重启设备</button></div></div>
+      <div class="plugins-layout">
+        <section class="panel" aria-label="插件列表"><h2>已安装插件</h2><div id="plugin-list" class="plugin-list"></div></section>
+        <section class="panel" aria-label="插件设置"><div id="plugin-detail"><p class="muted">选择一个插件查看设置。</p></div></section>
+      </div>
+    </section>
+    <section id="registers-page" aria-labelledby="registers-title" hidden>
+      <div class="heading"><div class="heading-title"><h1 id="registers-title">寄存器</h1><p id="registers-message" class="message title-status" role="status" aria-live="polite"></p></div><button id="refresh-registers" type="button">刷新</button></div>
+      <div class="panel">
+        <div id="register-areas" class="register-areas" role="group" aria-label="寄存器区域">
+          <button type="button" data-area="X" aria-pressed="true">X 输入位</button>
+          <button type="button" data-area="Y" aria-pressed="false">Y 输出位</button>
+          <button type="button" data-area="M" aria-pressed="false">M 内部位</button>
+          <button type="button" data-area="D" aria-pressed="false">D 数据字</button>
+        </div>
+        <div class="register-controls">
+          <form id="register-jump" class="register-jump"><label for="register-address">跳转地址</label><input id="register-address" placeholder="D100" autocomplete="off" spellcheck="false" aria-describedby="register-jump-error"><button type="submit">跳转</button></form>
+          <div class="register-pagination"><span id="register-position">—</span><button id="register-prev" type="button">上一页</button><button id="register-next" type="button">下一页</button></div>
+        </div>
+        <p id="register-jump-error" class="message error" role="status"></p>
+        <div class="register-table-wrap"><table class="register-table"><thead><tr><th scope="col">地址</th><th scope="col">当前值</th></tr></thead><tbody id="register-values"></tbody></table></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,47 @@
+name: Windows GUI
+
+on:
+  push:
+    paths:
+      - 'gui/**'
+      - '.github/workflows/gui-windows.yml'
+  pull_request:
+    paths:
+      - 'gui/**'
+      - '.github/workflows/gui-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-sdl3
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-jsoncpp
+            mingw-w64-ucrt-x86_64-libarchive
+      - name: Build
+        run: |
+          cmake -S gui -B build/gui-windows -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/gui-windows --parallel
+      - name: Test
+        run: ctest --test-dir build/gui-windows --output-on-failure
+      - name: Package
+        run: cpack --config build/gui-windows/CPackConfig.cmake -G ZIP -B build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jsp32-gui-windows-x64
+          path: build/jsp32-gui-windows-x64.zip
+          if-no-files-found: error

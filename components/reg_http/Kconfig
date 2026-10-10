@@ -1,0 +1,11 @@
+menu "Register HTTP API"
+    config REG_HTTP_ENABLED
+        bool "Enable register HTTP API"
+        default y
+
+    config REG_HTTP_MAX_SSE_CLIENTS
+        int "Maximum register event stream clients"
+        depends on REG_HTTP_ENABLED
+        default 2
+        range 1 4
+endmenu

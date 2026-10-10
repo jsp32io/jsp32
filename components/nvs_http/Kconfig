@@ -1,0 +1,49 @@
+menu "NVS HTTP API"
+
+    config NVS_HTTP_ENABLED
+        bool "Enable the NVS HTTP API"
+        default y
+
+    config NVS_HTTP_MAX_CONCURRENT_REQUESTS
+        int "Maximum concurrent NVS requests"
+        depends on NVS_HTTP_ENABLED
+        default 2
+        range 1 4
+
+    config NVS_HTTP_MAX_BODY_SIZE
+        int "Maximum JSON request body size"
+        depends on NVS_HTTP_ENABLED
+        default 12288
+        range 1024 65536
+
+    config NVS_HTTP_MAX_STRING_SIZE
+        int "Maximum string value size"
+        depends on NVS_HTTP_ENABLED
+        default 2048
+        range 1 16384
+
+    config NVS_HTTP_MAX_BLOB_SIZE
+        int "Maximum decoded blob size"
+        depends on NVS_HTTP_ENABLED
+        default 8192
+        range 1 65536
+
+    config NVS_HTTP_MAX_BATCH_OPERATIONS
+        int "Maximum operations in one batch"
+        depends on NVS_HTTP_ENABLED
+        default 32
+        range 1 100
+
+    config NVS_HTTP_TASK_STACK_SIZE
+        int "NVS HTTP worker stack size"
+        depends on NVS_HTTP_ENABLED
+        default 8192
+        range 4096 16384
+
+    config NVS_HTTP_TASK_PRIORITY
+        int "NVS HTTP worker priority"
+        depends on NVS_HTTP_ENABLED
+        default 4
+        range 1 24
+
+endmenu

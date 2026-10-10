@@ -1,0 +1,63 @@
+menu "QuickJS runtime"
+
+    config JS_EVENT_QUEUE_LENGTH
+        int "Event queue length"
+        default 32
+        range 4 256
+
+    config JS_RUNTIME_CONSOLE_QUEUE_LENGTH
+        int "Console messages retained per subscriber"
+        default 16
+        range 4 64
+
+    config JS_RUNTIME_TASK_STACK_SIZE
+        int "EventLoop task stack size"
+        default 32768
+        range 8192 131072
+
+    config JS_RUNTIME_TASK_PRIORITY
+        int "EventLoop task priority"
+        default 5
+        range 1 24
+
+    config JS_RUNTIME_MEMORY_LIMIT_KB
+        int "QuickJS heap limit (KiB)"
+        default 4096
+        range 256 7168
+
+    config JS_RUNTIME_STACK_LIMIT_KB
+        int "JavaScript stack limit (KiB)"
+        default 24
+        range 8 256
+
+    config JS_RUNTIME_CALL_BUDGET_MS
+        int "Maximum time for one JavaScript call (ms)"
+        default 100
+        range 10 10000
+
+    config JS_RUNTIME_MAX_JOBS_PER_TURN
+        int "Maximum Promise jobs per EventLoop turn"
+        default 64
+        range 1 1024
+
+    config JS_RUNTIME_MAX_TIMERS_PER_TURN
+        int "Maximum expired timers per EventLoop turn"
+        default 32
+        range 1 1024
+
+    config JS_RUNTIME_MAX_FILE_MODULES
+        int "Maximum LittleFS JavaScript modules per runtime"
+        default 64
+        range 1 256
+
+    config JS_RUNTIME_MAX_MODULE_SIZE_KB
+        int "Maximum size of one LittleFS JavaScript module (KiB)"
+        default 64
+        range 1 1024
+
+    config JS_RUNTIME_MAX_MODULE_SOURCE_KB
+        int "Maximum cumulative LittleFS module source (KiB)"
+        default 512
+        range 64 4096
+
+endmenu

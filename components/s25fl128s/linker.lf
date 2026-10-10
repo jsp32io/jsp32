@@ -1,0 +1,4 @@
+[mapping:s25fl128s]
+archive: libs25fl128s.a
+entries:
+    * (noflash)

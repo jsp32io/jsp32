@@ -1,0 +1,6 @@
+menu "JavaScript ADC"
+    config JS_ADC_ENABLED
+        bool "Enable the JavaScript ADC1 oneshot API"
+        depends on IDF_TARGET_ESP32S3
+        default y
+endmenu
