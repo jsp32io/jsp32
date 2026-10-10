@@ -38,7 +38,18 @@ JSP32_BASE_URL=http://192.168.1.20 ./jsp32 reboot -wait
 ```
 
 `flash -p PORT firmware.bin` burns firmware over serial without Python or a
-device URL. It validates the ESP32-S3 image headers, segment checksums, image
+device URL. Both `.bin` and `.bin.gz` are supported; gzip is detected by its
+header and decompressed in memory before image identification. Gzip checksum
+errors, truncated streams, and images larger than 16 MiB after decompression
+are rejected before connecting. Reported image sizes and alignment refer to the
+uncompressed firmware. For example:
+
+```sh
+./jsp32 flash -p /dev/ttyUSB0 ../build/jsp32.bin.gz
+./jsp32 flash -p /dev/ttyUSB0 ../build/factory.bin.gz
+```
+
+It validates the ESP32-S3 image headers, segment checksums, image
 SHA-256 and factory partition-table MD5 before connecting. Classification uses
 image contents, so renaming a file does not change its destination. A merged
 factory image (including initial storage) is written at `0x0`. For an application

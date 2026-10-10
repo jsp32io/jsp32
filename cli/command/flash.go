@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,7 +60,7 @@ func (c *FlashCommand) Run(ctx context.Context, app *App, args []string) error {
 	if !ok {
 		return &UsageError{Message: "reset mode must be default, no-reset, usb-jtag, or auto"}
 	}
-	data, err := os.ReadFile(flags.Arg(0))
+	data, err := readFlashFirmware(flags.Arg(0))
 	if err != nil {
 		return fmt.Errorf("read firmware: %w", err)
 	}
@@ -196,6 +195,7 @@ func (*FlashCommand) printHelp(output io.Writer) {
 	fmt.Fprintln(output, "  -b       transfer baud rate (default 115200)")
 	fmt.Fprintln(output, "  -align   byte alignment: 4096, 0x10000, 4K, 64KiB, 128K (default 64K)")
 	fmt.Fprintln(output, "  -reset   default, no-reset, usb-jtag, or auto (default default)")
+	fmt.Fprintln(output, "Accepts .bin and .bin.gz; gzip firmware is decompressed before inspection.")
 	fmt.Fprintln(output, "Image contents select factory (0x0) or application (inactive OTA slot).")
 	fmt.Fprintln(output, "Application flashing verifies the inactive slot, then selects it for next boot.")
 }

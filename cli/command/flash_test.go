@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
@@ -177,13 +178,15 @@ func fmtMD5(data []byte) string {
 
 func TestFlashCommand(t *testing.T) {
 	tests := []struct {
-		name                             string
-		factory, manual, mismatch, blank bool
-		flashErr, verifyErr              error
+		name                                         string
+		factory, manual, mismatch, blank, compressed bool
+		flashErr, verifyErr                          error
 	}{
 		{name: "application named factory.bin"},
 		{name: "factory named jsp32.bin", factory: true},
 		{name: "manual reset", manual: true},
+		{name: "gzip application", compressed: true},
+		{name: "gzip factory", factory: true, compressed: true},
 		{name: "MD5 mismatch", mismatch: true},
 		{name: "MD5 failure", verifyErr: errors.New("timeout")},
 		{name: "transfer failure", flashErr: errors.New("disconnect")},
@@ -197,8 +200,13 @@ func TestFlashCommand(t *testing.T) {
 				data = testFactoryImage()
 				filename = "jsp32.bin"
 			}
+			input := data
+			if tt.compressed {
+				filename += ".gz"
+				input = testGzipFirmware(t, data)
+			}
 			path := filepath.Join(t.TempDir(), filename)
-			if err := os.WriteFile(path, data, 0600); err != nil {
+			if err := os.WriteFile(path, input, 0600); err != nil {
 				t.Fatal(err)
 			}
 			f := &fakeSerialFlasher{table: testFlashTable(), mismatch: tt.mismatch, flashErr: tt.flashErr, verifyErr: tt.verifyErr}
@@ -350,5 +358,71 @@ func TestFlashCustomAlignment(t *testing.T) {
 				t.Fatalf("size=%d", len(f.data))
 			}
 		})
+	}
+}
+
+func testGzipFirmware(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	writer := gzip.NewWriter(&buf)
+	if _, err := writer.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestReadFlashFirmware(t *testing.T) {
+	data := testESPImage(true)
+	compressed := testGzipFirmware(t, data)
+	badCRC := append([]byte(nil), compressed...)
+	badCRC[len(badCRC)-8] ^= 1
+	oversized := testGzipFirmware(t, make([]byte, maxFlashFirmwareSize+1))
+	for _, tt := range []struct {
+		name  string
+		input []byte
+		fail  bool
+	}{
+		{"raw.bin", data, false},
+		{"app.bin.gz", compressed, false},
+		{"renamed.bin", compressed, false},
+		{"uppercase.bin.GZ", compressed, false},
+		{"invalid.bin.gz", data, true},
+		{"truncated.bin.gz", compressed[:len(compressed)-1], true},
+		{"checksum.bin.gz", badCRC, true},
+		{"too-large.bin.gz", oversized, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), tt.name)
+			if err := os.WriteFile(path, tt.input, 0600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := readFlashFirmware(path)
+			if (err != nil) != tt.fail {
+				t.Fatalf("error=%v", err)
+			}
+			if !tt.fail && !bytes.Equal(got, data) {
+				t.Fatal("firmware contents changed")
+			}
+		})
+	}
+}
+
+func TestFlashRejectsDamagedGzipBeforeConnecting(t *testing.T) {
+	compressed := testGzipFirmware(t, testESPImage(true))
+	compressed[len(compressed)-8] ^= 1
+	path := filepath.Join(t.TempDir(), "app.bin.gz")
+	if err := os.WriteFile(path, compressed, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := &FlashCommand{connect: func(string, *espflasher.FlasherOptions) (serialFlasher, error) {
+		t.Fatal("connected before gzip verification")
+		return nil, nil
+	}}
+	app := &App{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Commands: []Command{cmd}}
+	if err := app.Run(context.Background(), []string{"flash", "-p", "test", path}); err == nil {
+		t.Fatal("accepted corrupt gzip")
 	}
 }
