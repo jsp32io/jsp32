@@ -48,6 +48,34 @@ test('plugin file errors include the decoded file path and HTTP status',async()=
   });
 });
 
+test('plugin heading saves enable changes immediately and rolls back rejected writes',async()=>{
+  const b=browser([]),writes=[],messages=[];
+  function element(tag,text,className){return {tag,textContent:text,className,children:[],
+    append(...children){this.children.push(...children);},replaceChildren(){this.children=[];}};}
+  const target=element('section');b.elements.set('#plugin-detail',target);b.context.node=element;
+  const detail={item:{id:'io',status:'running'},config:{schema:{},values:{}},file:{value:{}},
+    meta:{value:{io:{disabled:false}}}};
+  b.context.activeDetail=detail;vm.runInContext('pluginState.detail=activeDetail',b.context);
+  b.context.pluginMessage=(text,error)=>messages.push({text,error});
+  let stored={io:{disabled:false,custom:'preserved'},other:{disabled:true}},reject=false;
+  b.context.readPluginFile=async()=>({value:stored,etag:'current-etag'});
+  b.context.writePluginFile=async(url,value,etag)=>{
+    writes.push({url,value,etag});if(reject)throw new Error('write rejected');stored=value;
+  };
+  b.context.renderPluginDetail();
+  const heading=target.children[0];
+  assert.deepEqual(heading.children.map(child=>child.tag),['h2','p','label']);
+  assert.equal(heading.children[1].textContent,'状态：running');
+  const toggle=heading.children[2].children[0];assert.equal(toggle.checked,true);
+  toggle.checked=false;const pending=toggle.onchange();assert.equal(toggle.disabled,true);await pending;
+  assert.equal(writes[0].etag,'current-etag');assert.equal(stored.io.disabled,true);
+  assert.equal(stored.io.custom,'preserved');assert.equal(stored.other.disabled,true);
+  assert.equal(toggle.disabled,false);assert.match(messages.at(-1).text,/重启设备后生效/);
+  reject=true;toggle.checked=true;await toggle.onchange();
+  assert.equal(toggle.checked,false);assert.equal(toggle.disabled,false);
+  assert.equal(messages.at(-1).error,true);assert.match(messages.at(-1).text,/write rejected/);
+});
+
 test('telemetry live values decode register types, word order, scale and offset',()=>{
   const {context}=browser([]),info={areas:{X:4,Y:4,M:4,D:2048},maxTransaction:256};
   const row=(address,type,scale='1',offset='0',wordOrder='highFirst')=>({address:{value:address},type:{value:type},
@@ -166,7 +194,7 @@ test('telemetry UI deletes fields, saves the remaining list, and restores defaul
   assert.equal(writes.length,1);assert.equal(writes[0].etag,'old-etag');
   assert.deepEqual(JSON.parse(JSON.stringify(writes[0].value.fields)),{});
   assert.match(validations[0],/validateTelemetry/);
-  await all.find(element=>element.textContent==='恢复插件默认设置').onclick();
+  await all.find(element=>element.textContent==='恢复插件默认').onclick();
   assert.equal(writes.length,1);assert.equal(deletes.length,1);
   assert.equal(deletes[0].etag,'new-etag');assert.equal(detail.telemetryFile.etag,null);
   assert.match(validations[1],/"level"/);

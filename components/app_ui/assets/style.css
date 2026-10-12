@@ -134,8 +134,10 @@ summary { cursor: pointer; font-weight: 500; color: #414c58; padding: 6px 0; ove
 .plugin-choice { display: flex; justify-content: space-between; gap: 12px; width: 100%; text-align: left; overflow-wrap: anywhere; }
 .plugin-choice span { color: var(--muted); }
 .plugin-choice[aria-pressed="true"] { border-color: var(--accent); background: #edf2ff; }
-.plugin-status { margin: 4px 0 10px; overflow-wrap: anywhere; }
-.plugin-enabled { margin: 10px 0 6px; }
+.plugin-detail-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
+.plugin-status { color: #23834b; overflow-wrap: anywhere; min-width: 0; }
+.plugin-status.error { color: #a33737; }
+.plugin-enabled { margin: 0; flex-shrink: 0; }
 .plugin-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; align-items: start; margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
 .plugin-form > .field { margin: 0; min-width: 0; }
 .plugin-form > h3, .plugin-form > p, .plugin-form > textarea, .plugin-form > .actions, .plugin-form > .register-table-wrap, .plugin-form > button { grid-column: 1 / -1; }

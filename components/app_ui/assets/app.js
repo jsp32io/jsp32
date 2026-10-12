@@ -491,7 +491,7 @@ function renderTelemetryForm(detail,target){
   const add=node('button','添加字段');add.type='button';add.onclick=()=>{addRow('',{});rows.at(-1).key.focus();};
   form.append(add);
   detail.telemetryRows=rows;detail.telemetryValueStatus=node('p','正在读取实时值…','muted');form.append(detail.telemetryValueStatus);
-  const actions=node('div',undefined,'actions'),save=node('button','保存','primary'),reset=node('button','恢复插件默认设置');
+  const actions=node('div',undefined,'actions'),save=node('button','保存配置','primary'),reset=node('button','恢复插件默认');
   save.type='submit';reset.type='button';actions.append(save,reset);form.append(actions);
   const persist=async (settings,restore=false)=>{
     if(pluginState.saving)return;pluginState.saving=true;save.disabled=reset.disabled=true;
@@ -513,24 +513,29 @@ function renderPluginDetail(){
   const target=$('#plugin-detail');target.replaceChildren();
   const detail=pluginState.detail;if(!detail)return;
   const {item,config,file,meta}=detail;
-  target.append(node('h2',item.id),node('p',`状态：${item.status}${item.error?` · ${item.error}`:''}`,'plugin-status'));
-  if(item.deps?.length)target.append(node('p',`依赖：${item.deps.join('、')}`,'muted'));
+  const heading=node('div',undefined,'plugin-detail-heading');
+  heading.append(node('h2',item.id),node('p',`状态：${item.status}${item.error?` · ${item.error}`:''}`,
+    `plugin-status${item.error || item.status?.endsWith('failed')?' error':''}`));
   const enabled=node('label',undefined,'check plugin-enabled');
   const toggle=node('input');toggle.type='checkbox';toggle.checked=!(meta.value[item.id]?.disabled ?? item.disabled);
   enabled.append(toggle,node('span','启用插件'));
-  const saveEnabled=node('button','保存启用状态');saveEnabled.type='button';
-  saveEnabled.onclick=async()=>{
-    if(pluginState.saving)return;pluginState.saving=true;saveEnabled.disabled=true;
+  let savedEnabled=toggle.checked;
+  toggle.onchange=async()=>{
+    if(pluginState.saving){toggle.checked=savedEnabled;return;}
+    const nextEnabled=toggle.checked;
+    pluginState.saving=true;toggle.disabled=true;
     try{
       const latest=await readPluginFile(pluginMetaFile);
-      const next={...latest.value,[item.id]:{...latest.value[item.id],disabled:!toggle.checked}};
+      const next={...latest.value,[item.id]:{...latest.value[item.id],disabled:!nextEnabled}};
       await writePluginFile(pluginMetaFile,next,latest.etag);
+      savedEnabled=nextEnabled;
       detail.meta=await readPluginFile(pluginMetaFile);
       pluginMessage('启用状态已保存，重启设备后生效。');
-    }catch(error){pluginMessage(error.message,true);}
-    finally{pluginState.saving=false;saveEnabled.disabled=false;}
+    }catch(error){toggle.checked=savedEnabled;pluginMessage(error.message,true);}
+    finally{pluginState.saving=false;toggle.disabled=false;}
   };
-  target.append(enabled,saveEnabled);
+  heading.append(enabled);target.append(heading);
+  if(item.deps?.length)target.append(node('p',`依赖：${item.deps.join('、')}`,'muted'));
   const form=node('form');form.className='plugin-form';
   const fields=new Map();let rawEditor;
   if(config.schema){
