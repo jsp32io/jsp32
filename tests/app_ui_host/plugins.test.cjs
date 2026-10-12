@@ -166,7 +166,7 @@ test('telemetry UI deletes fields, saves the remaining list, and restores defaul
   assert.equal(writes.length,1);assert.equal(writes[0].etag,'old-etag');
   assert.deepEqual(JSON.parse(JSON.stringify(writes[0].value.fields)),{});
   assert.match(validations[0],/validateTelemetry/);
-  await all.find(element=>element.textContent==='恢复插件默认上报').onclick();
+  await all.find(element=>element.textContent==='恢复插件默认设置').onclick();
   assert.equal(writes.length,1);assert.equal(deletes.length,1);
   assert.equal(deletes[0].etag,'new-etag');assert.equal(detail.telemetryFile.etag,null);
   assert.match(validations[1],/"level"/);

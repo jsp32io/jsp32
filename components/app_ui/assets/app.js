@@ -491,7 +491,7 @@ function renderTelemetryForm(detail,target){
   const add=node('button','添加字段');add.type='button';add.onclick=()=>{addRow('',{});rows.at(-1).key.focus();};
   form.append(add);
   detail.telemetryRows=rows;detail.telemetryValueStatus=node('p','正在读取实时值…','muted');form.append(detail.telemetryValueStatus);
-  const actions=node('div',undefined,'actions'),save=node('button','保存上报设置','primary'),reset=node('button','恢复插件默认上报');
+  const actions=node('div',undefined,'actions'),save=node('button','保存','primary'),reset=node('button','恢复插件默认设置');
   save.type='submit';reset.type='button';actions.append(save,reset);form.append(actions);
   const persist=async (settings,restore=false)=>{
     if(pluginState.saving)return;pluginState.saving=true;save.disabled=reset.disabled=true;
