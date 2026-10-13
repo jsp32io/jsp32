@@ -596,16 +596,9 @@ static JSValue js_gpio_list(JSContext *ctx, JSValueConst this_value,
     return array;
 }
 
-static JSValue js_gpio_setup(JSContext *ctx, JSValueConst this_value,
-                             int argc, JSValueConst *argv)
+static JSValue configure_pin(JSContext *ctx, gpio_num_t pin,
+                             const setup_options_t *options)
 {
-    (void)this_value;
-    gpio_num_t pin;
-    if (!get_pin(ctx, argc, argv, 0, &pin)) return JS_EXCEPTION;
-    if (argc < 2) return JS_ThrowTypeError(ctx, "options are required");
-    setup_options_t options;
-    if (!parse_setup_options(ctx, argv[1], &options)) return JS_EXCEPTION;
-
     js_gpio_module_t *module = &s_gpio;
     pin_state_t *state = &module->pins[pin];
     if (!pin_allowed(module, pin)) {
@@ -614,13 +607,13 @@ static JSValue js_gpio_setup(JSContext *ctx, JSValueConst this_value,
     if (pin_reserved(state)) {
         return JS_ThrowRangeError(ctx, "GPIO pin is reserved");
     }
-    if (options.output && !GPIO_IS_VALID_OUTPUT_GPIO(pin)) {
+    if (options->output && !GPIO_IS_VALID_OUTPUT_GPIO(pin)) {
         return JS_ThrowRangeError(ctx, "GPIO pin does not support output");
     }
-    if (same_configuration(state, &options)) return JS_UNDEFINED;
+    if (same_configuration(state, options)) return JS_UNDEFINED;
 
     esp_timer_handle_t new_timer = NULL;
-    if (!options.output && options.debounce_ms > 0) {
+    if (!options->output && options->debounce_ms > 0) {
         esp_timer_create_args_t timer_args = {
             .callback = debounce_timer_callback,
             .arg = state,
@@ -631,8 +624,8 @@ static JSValue js_gpio_setup(JSContext *ctx, JSValueConst this_value,
         if (err != ESP_OK) return throw_esp_error(ctx, "gpio.setup", err);
     }
 
-    if (options.output) {
-        esp_err_t err = gpio_set_level(pin, options.initial);
+    if (options->output) {
+        esp_err_t err = gpio_set_level(pin, options->initial);
         if (err != ESP_OK) {
             if (new_timer) esp_timer_delete(new_timer);
             return throw_esp_error(ctx, "gpio.setup", err);
@@ -640,9 +633,9 @@ static JSValue js_gpio_setup(JSContext *ctx, JSValueConst this_value,
     }
     gpio_config_t config = {
         .pin_bit_mask = BIT64(pin),
-        .mode = options.output ? GPIO_MODE_OUTPUT : GPIO_MODE_INPUT,
-        .pull_up_en = options.pull == 1,
-        .pull_down_en = options.pull == 2,
+        .mode = options->output ? GPIO_MODE_OUTPUT : GPIO_MODE_INPUT,
+        .pull_up_en = options->pull == 1,
+        .pull_down_en = options->pull == 2,
         .intr_type = GPIO_INTR_DISABLE,
     };
     esp_err_t err = gpio_config(&config);
@@ -650,7 +643,7 @@ static JSValue js_gpio_setup(JSContext *ctx, JSValueConst this_value,
         if (new_timer) esp_timer_delete(new_timer);
         return throw_esp_error(ctx, "gpio.setup", err);
     }
-    if (!state->configured && !options.output &&
+    if (!state->configured && !options->output &&
         (esp_gpio_reserve(BIT64(pin)) & BIT64(pin))) {
         gpio_reset_pin(pin);
         if (new_timer) esp_timer_delete(new_timer);
@@ -663,14 +656,32 @@ static JSValue js_gpio_setup(JSContext *ctx, JSValueConst this_value,
         esp_timer_delete(state->debounce_timer);
     }
     state->configured = true;
-    state->output = options.output;
-    state->pull = options.pull;
-    state->initial = options.initial;
-    state->level = options.output ? options.initial
+    state->output = options->output;
+    state->pull = options->pull;
+    state->initial = options->initial;
+    state->level = options->output ? options->initial
                                   : (gpio_get_level(pin) ? 1 : 0);
-    state->debounce_ms = options.debounce_ms;
+    state->debounce_ms = options->debounce_ms;
     state->debounce_timer = new_timer;
     return JS_UNDEFINED;
+}
+
+static JSValue js_gpio_setup(JSContext *ctx, JSValueConst this_value,
+                             int argc, JSValueConst *argv)
+{
+    (void)this_value;
+    gpio_num_t pin;
+    if (!get_pin(ctx, argc, argv, 0, &pin)) return JS_EXCEPTION;
+    if (argc < 2) return JS_ThrowTypeError(ctx, "options are required");
+    setup_options_t options;
+    if (!parse_setup_options(ctx, argv[1], &options)) return JS_EXCEPTION;
+    return configure_pin(ctx, pin, &options);
+}
+
+static JSValue configure_default_input(JSContext *ctx, gpio_num_t pin)
+{
+    const setup_options_t options = {.debounce_ms = 20};
+    return configure_pin(ctx, pin, &options);
 }
 
 static JSValue js_gpio_read(JSContext *ctx, JSValueConst this_value,
@@ -681,7 +692,9 @@ static JSValue js_gpio_read(JSContext *ctx, JSValueConst this_value,
     if (!get_pin(ctx, argc, argv, 0, &pin)) return JS_EXCEPTION;
     pin_state_t *state = &s_gpio.pins[pin];
     if (!state->configured) {
-        return JS_ThrowInternalError(ctx, "GPIO pin is not configured");
+        if (JS_IsException(configure_default_input(ctx, pin))) {
+            return JS_EXCEPTION;
+        }
     }
     int level = state->output ? state->level : gpio_get_level(pin);
     return JS_NewInt32(ctx, level ? 1 : 0);
@@ -694,13 +707,17 @@ static JSValue js_gpio_write(JSContext *ctx, JSValueConst this_value,
     gpio_num_t pin;
     if (!get_pin(ctx, argc, argv, 0, &pin)) return JS_EXCEPTION;
     pin_state_t *state = &s_gpio.pins[pin];
-    if (!state->configured || !state->output) {
+    if (state->configured && !state->output) {
         return JS_ThrowInternalError(ctx,
                                      "GPIO pin is not configured as output");
     }
     if (argc < 2) return JS_ThrowTypeError(ctx, "value is required");
     uint8_t level;
     if (!parse_binary_value(ctx, argv[1], &level)) return JS_EXCEPTION;
+    if (!state->configured) {
+        const setup_options_t options = {.output = true, .initial = level};
+        return configure_pin(ctx, pin, &options);
+    }
     esp_err_t err = gpio_set_level(pin, level);
     if (err != ESP_OK) return throw_esp_error(ctx, "gpio.write", err);
     state->level = level;
@@ -750,18 +767,23 @@ static JSValue js_gpio_watch(JSContext *ctx, JSValueConst this_value,
     gpio_num_t pin;
     if (!get_pin(ctx, argc, argv, 0, &pin)) return JS_EXCEPTION;
     pin_state_t *state = &s_gpio.pins[pin];
-    if (!state->configured || state->output) {
+    if (state->configured && state->output) {
         return JS_ThrowInternalError(ctx,
                                      "GPIO pin is not configured as input");
     }
     watch_edge_t edge;
-    if (argc < 2 || !parse_edge(ctx, argv[1], &edge)) return JS_EXCEPTION;
+    if (argc < 2) return JS_ThrowTypeError(ctx, "edge is required");
+    if (!parse_edge(ctx, argv[1], &edge)) return JS_EXCEPTION;
     if (argc < 3 || !JS_IsFunction(ctx, argv[2])) {
         return JS_ThrowTypeError(ctx, "callback must be a function");
     }
     js_gpio_module_t *module = &s_gpio;
     if (module->subscription_count >= CONFIG_JS_GPIO_MAX_WATCHERS) {
         return JS_ThrowRangeError(ctx, "too many GPIO watchers");
+    }
+    if (!state->configured &&
+        JS_IsException(configure_default_input(ctx, pin))) {
+        return JS_EXCEPTION;
     }
     gpio_subscription_t *subscription = calloc(1, sizeof(*subscription));
     if (!subscription) return JS_ThrowOutOfMemory(ctx);

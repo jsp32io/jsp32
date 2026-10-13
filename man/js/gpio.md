@@ -174,14 +174,16 @@ gpio.setup(4, {mode: "input", pull: "none", debounceMs: 0});
 
 ## `gpio.read(pin)`
 
-读取已配置引脚的电平，返回数字 `0` 或 `1`：
+读取引脚的电平，返回数字 `0` 或 `1`：
 
 ```js
 const level = gpio.read(4);
 ```
 
 输入引脚返回当前硬件电平。输出引脚返回 GPIO API 最近成功设置并保存的输出
-电平。引脚尚未配置时会抛出异常。
+电平。引脚尚未配置时，自动以 `{mode: "input", pull: "none", debounceMs: 20}`
+配置为输入。输入模式下 `read()` 立即读取硬件电平，20ms 去抖只影响后续 `watch()`
+的事件。已有配置不会被修改。
 
 ## `gpio.write(pin, value)`
 
@@ -195,12 +197,15 @@ gpio.write(2, 0);      // 低电平
 gpio.write(2, false);  // 低电平
 ```
 
-目标引脚必须已经通过 `gpio.setup(pin, {mode: "output"})` 配置为输出，否则会
-抛出异常。
+目标引脚尚未配置时，自动以 `{mode: "output", initial: value}` 配置为输出，
+先设置初始电平再启用输出，避免短暂输出相反电平。已配置为输出时直接写入；
+已配置为输入时抛出 `InternalError`，不会自动切换模式。
 
 ## `gpio.watch(pin, edge, callback)`
 
-监听输入引脚的电平边沿。目标引脚必须已配置为输入。
+监听输入引脚的电平边沿。未配置时自动使用
+`{mode: "input", pull: "none", debounceMs: 20}` 配置为输入。已配置为输入时
+保留现有上下拉和去抖设置；已配置为输出时抛出 `InternalError`。
 
 ```js
 const unwatch = gpio.watch(4, "falling", event => {
@@ -270,6 +275,17 @@ gpio.reset(4);
 如果引脚此前已由 GPIO API 配置，返回 `true`；未配置时返回 `false`。Runtime
 停止时也会自动复位所有由此 API 配置的 GPIO。
 
+## 自动配置规则
+
+`read()`、`write()` 和 `watch()` 只在引脚未配置时自动配置，所有调用参数校验
+通过后才执行自动配置。引脚可用性检查与显式 `setup()` 相同；被保留、禁止
+使用或不支持目标模式的引脚仍会报错。
+
+显式 `setup()` 的默认值保持不变：输入 `pull: "none"`、`debounceMs: 0`，
+输出 `initial: 0`。先调用 `read()` 或 `watch()` 会将引脚配置为输入，随后
+`write()` 会报错，需要显式 `setup()` 切换为输出。`reset()` 后再次调用上述
+接口会重新自动配置。
+
 ## 常见异常
 
 GPIO API 使用 JavaScript 异常报告错误。常见情况包括：
@@ -281,9 +297,8 @@ GPIO API 使用 JavaScript 异常报告错误。常见情况包括：
 | 不支持输出的引脚配置为输出 | `RangeError` |
 | `mode` 缺失或配置字段类型错误 | `TypeError` |
 | `mode`、`pull`、`debounceMs` 等值超出范围 | `RangeError` |
-| 读取尚未配置的引脚 | `InternalError` |
-| 写入未配置为输出的引脚 | `InternalError` |
-| 监听未配置为输入的引脚 | `InternalError` |
+| 写入已配置为输入的引脚 | `InternalError` |
+| 监听已配置为输出的引脚 | `InternalError` |
 | watcher 达到全局上限 | `RangeError` |
 
 底层 ESP-IDF GPIO 操作失败时会抛出 `InternalError`，消息中包含失败的操作和
