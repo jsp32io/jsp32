@@ -15,6 +15,7 @@
 #include "js_event.h"
 #include "js_runtime.h"
 #include "js_request.h"
+#include "js_abort.h"
 #include "quickjs.h"
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
@@ -64,6 +65,7 @@ typedef struct {
     uint16_t scan_to;
     uint32_t timeout_ms;
     int64_t deadline_us;
+    js_cancel_t *cancel;
     i2c_operation_t type;
     i2c_master_dev_handle_t device;
     uint8_t *write_data;
@@ -82,9 +84,11 @@ typedef struct {
     esp_err_t status;
     uint8_t *data;
     size_t size;
+    js_cancel_t *cancel;
 } i2c_completion_t;
 
 struct i2c_request {
+    js_cancel_t *cancel;
     uint32_t id;
     uint32_t bus_generation;
     uint32_t device_generation;
@@ -102,6 +106,7 @@ typedef struct {
     SemaphoreHandle_t stopped;
     TaskHandle_t task;
     js_request_table_t requests;
+    size_t native_pending;
     i2c_device_state_t devices[CONFIG_JS_I2C_MAX_DEVICES_PER_BUS];
     uint64_t manually_reserved_pin_mask;
     uint32_t generation;
@@ -381,13 +386,13 @@ static bool parse_device_options(JSContext *ctx, JSValueConst value,
 
 static bool parse_operation_options(JSContext *ctx, int argc,
                                     JSValueConst *argv, int index,
-                                    uint32_t default_ms, uint32_t *out)
+                                    uint32_t default_ms, uint32_t *out, bool reading)
 {
     *out = default_ms;
     if (argc <= index || JS_IsUndefined(argv[index])) return true;
-    static const char *const fields[] = {"timeoutMs"};
+    static const char *const fields[] = {"timeoutMs", "signal"};
     if (!options_object(ctx, argv[index], "operation") ||
-        !validate_fields(ctx, argv[index], fields, 1, "operation")) {
+        !validate_fields(ctx, argv[index], fields, reading ? 2 : 1, "operation")) {
         return false;
     }
     bool present = false;
@@ -532,10 +537,15 @@ static i2c_completion_t execute_command(i2c_bus_state_t *state,
         .address = command->address,
         .type = command->type,
         .status = ESP_OK,
+        .cancel = command->cancel,
     };
     /* ESP-IDF uses -1 for an unlimited software wait. Hardware timeout and
        NACK errors still terminate a transfer. */
     int timeout_ms = command->timeout_ms ? (int)command->timeout_ms : -1;
+    if (js_cancelled(command->cancel)) {
+        result.status = ESP_ERR_INVALID_STATE;
+        goto done;
+    }
     if (command->deadline_us) {
         int64_t remaining = command->deadline_us - esp_timer_get_time();
         if (remaining <= 0) {
@@ -646,6 +656,7 @@ static void i2c_worker(void *arg)
                     .address = command.address,
                     .type = command.type,
                     .status = ESP_ERR_INVALID_STATE,
+                    .cancel = command.cancel,
                 };
                 free(command.write_data);
                 free(command.read_data);
@@ -669,6 +680,7 @@ static void i2c_worker(void *arg)
             .type = command.type,
             .status = command.type == I2C_OP_DEVICE_CLOSE
                           ? ESP_OK : ESP_ERR_INVALID_STATE,
+            .cancel = command.cancel,
         };
         free(command.write_data);
         free(command.read_data);
@@ -769,6 +781,7 @@ static void finalize_bus_state(i2c_bus_state_t *state)
     state->sda = -1;
     state->scl = -1;
     state->requests.count = 0;
+    state->native_pending = 0;
     state->open = false;
     set_bus_closing(state, false);
 }
@@ -857,6 +870,8 @@ static void i2c_event_handler(js_runtime_t *runtime,
         bool bus_close = completion.type == I2C_OP_BUS_CLOSE;
         complete_request(state, &completion);
         free(completion.data);
+        js_cancel_release(completion.cancel);
+        if (completion.type != I2C_OP_BUS_CLOSE && state->native_pending) --state->native_pending;
         if (bus_close) {
             finalize_bus_state(state);
             break;
@@ -887,37 +902,61 @@ static void force_close_bus(i2c_bus_state_t *state)
     while (state->completions &&
            xQueueReceive(state->completions, &completion, 0) == pdTRUE) {
         free(completion.data);
+        js_cancel_release(completion.cancel);
     }
     i2c_command_t command;
     while (state->commands &&
            xQueueReceive(state->commands, &command, 0) == pdTRUE) {
         free(command.write_data);
         free(command.read_data);
+        js_cancel_release(command.cancel);
     }
     finalize_bus_state(state);
 }
 
+static void dispose_request(void *opaque)
+{
+    i2c_request_t *request = opaque;
+    js_cancel_release(request->cancel);
+    free(request);
+}
+static void cancel_request(uint32_t id, void *opaque)
+{
+    i2c_request_t *request = opaque;
+    js_cancel_abort(id, request->cancel);
+}
 static JSValue new_request(JSContext *ctx, i2c_bus_state_t *state,
                            i2c_operation_t type, uint16_t device_slot,
                            uint32_t device_generation, uint16_t address,
-                           uint32_t *out_id)
+                           uint32_t *out_id, js_cancel_t *token)
 {
     i2c_request_t *request = calloc(1, sizeof(*request));
     if (!request) return JS_ThrowOutOfMemory(ctx);
     *request = (i2c_request_t){.bus_generation = state->generation,
         .device_generation = device_generation, .device_slot = device_slot,
-        .address = address, .type = type};
+        .address = address, .type = type, .cancel = token};
     JSValue promise = js_request_create(&state->requests, state->generation,
-                                        request, free, NULL, &request->id);
+                                        request, dispose_request, cancel_request, &request->id);
     if (JS_IsException(promise)) { free(request); return promise; }
     *out_id = request->id;
     return promise;
 }
 
 static JSValue enqueue_command(JSContext *ctx, i2c_bus_state_t *state,
-                               i2c_command_t *command)
+                               i2c_command_t *command, JSValueConst options)
 {
-    if (state->requests.count >= CONFIG_JS_I2C_MAX_PENDING) {
+    JSValue signal = js_abort_get_signal(ctx, options);
+    if (JS_IsException(signal) || js_abort_aborted(ctx, signal)) {
+        free(command->write_data); free(command->read_data);
+        command->write_data = NULL; command->read_data = NULL;
+        if (JS_IsException(signal)) return signal;
+        JSValue reason = js_abort_reason(ctx, signal);
+        JSValue promise = js_request_promise(ctx, true, reason);
+        JS_FreeValue(ctx, reason); JS_FreeValue(ctx, signal);
+        return promise;
+    }
+    if (state->native_pending >= CONFIG_JS_I2C_MAX_PENDING) {
+        JS_FreeValue(ctx, signal);
         free(command->write_data);
         free(command->read_data);
         command->write_data = NULL;
@@ -926,11 +965,19 @@ static JSValue enqueue_command(JSContext *ctx, i2c_bus_state_t *state,
             "I2C operation queue full", command->type, state->id,
             command->address);
     }
+    js_cancel_t *token = JS_IsUndefined(signal) ? NULL : js_cancel_new();
+    if (!JS_IsUndefined(signal) && !token) {
+        JS_FreeValue(ctx, signal);
+        free(command->write_data); free(command->read_data);
+        command->write_data = NULL; command->read_data = NULL;
+        return JS_ThrowOutOfMemory(ctx);
+    }
     JSValue promise = new_request(ctx, state, command->type,
                                   command->device_slot,
                                   command->device_generation,
-                                  command->address, &command->id);
+                                  command->address, &command->id, token);
     if (JS_IsException(promise)) {
+        js_cancel_release(token); JS_FreeValue(ctx, signal);
         free(command->write_data);
         free(command->read_data);
         command->write_data = NULL;
@@ -938,6 +985,17 @@ static JSValue enqueue_command(JSContext *ctx, i2c_bus_state_t *state,
         return promise;
     }
     command->bus_generation = state->generation;
+    if (!js_abort_attach(&state->requests, command->id, state->generation, signal)) {
+        JSValue error = JS_GetException(ctx);
+        js_request_reject(&state->requests, command->id, state->generation, error);
+        JS_FreeValue(ctx, error); JS_FreeValue(ctx, signal);
+        free(command->write_data); free(command->read_data);
+        command->write_data = NULL; command->read_data = NULL;
+        return promise;
+    }
+    JS_FreeValue(ctx, signal);
+    command->cancel = token;
+    js_cancel_retain(token);
     if ((command->type == I2C_OP_READ || command->type == I2C_OP_WRITE_READ) &&
         command->timeout_ms > 0) {
         command->deadline_us = esp_timer_get_time() + (int64_t)command->timeout_ms * 1000;
@@ -951,6 +1009,9 @@ static JSValue enqueue_command(JSContext *ctx, i2c_bus_state_t *state,
         free(command->read_data);
         command->write_data = NULL;
         command->read_data = NULL;
+        js_cancel_release(token);
+    } else {
+        ++state->native_pending;
     }
     return promise;
 }
@@ -1076,11 +1137,11 @@ static JSValue js_device_write(JSContext *ctx, JSValueConst this_value,
     if (!copy_data(ctx, argv[0], &command.write_data, &command.write_size) ||
         !parse_operation_options(ctx, argc, argv, 1,
                                  I2C_TIMEOUT_DEFAULT_MS,
-                                 &command.timeout_ms)) {
+                                 &command.timeout_ms, false)) {
         free(command.write_data);
         return JS_EXCEPTION;
     }
-    return enqueue_command(ctx, bus, &command);
+    return enqueue_command(ctx, bus, &command, JS_UNDEFINED);
 }
 
 static JSValue js_device_read(JSContext *ctx, JSValueConst this_value,
@@ -1108,10 +1169,10 @@ static JSValue js_device_read(JSContext *ctx, JSValueConst this_value,
     };
     if (!parse_operation_options(ctx, argc, argv, 1,
                                  I2C_TIMEOUT_DEFAULT_MS,
-                                 &command.timeout_ms)) return JS_EXCEPTION;
+                                 &command.timeout_ms, true)) return JS_EXCEPTION;
     command.read_data = malloc(command.read_size);
     if (!command.read_data) return JS_ThrowOutOfMemory(ctx);
-    return enqueue_command(ctx, bus, &command);
+    return enqueue_command(ctx, bus, &command, argc > 1 ? argv[1] : JS_UNDEFINED);
 }
 
 static JSValue js_device_write_read(JSContext *ctx,
@@ -1140,7 +1201,7 @@ static JSValue js_device_write_read(JSContext *ctx,
                      CONFIG_JS_I2C_MAX_TRANSFER_SIZE, &read_length) ||
         !parse_operation_options(ctx, argc, argv, 2,
                                  I2C_TIMEOUT_DEFAULT_MS,
-                                 &command.timeout_ms)) {
+                                 &command.timeout_ms, true)) {
         free(command.write_data);
         return JS_EXCEPTION;
     }
@@ -1150,7 +1211,7 @@ static JSValue js_device_write_read(JSContext *ctx,
         free(command.write_data);
         return JS_ThrowOutOfMemory(ctx);
     }
-    return enqueue_command(ctx, bus, &command);
+    return enqueue_command(ctx, bus, &command, argc > 2 ? argv[2] : JS_UNDEFINED);
 }
 
 static JSValue js_device_close(JSContext *ctx, JSValueConst this_value,
@@ -1183,7 +1244,7 @@ static JSValue js_device_close(JSContext *ctx, JSValueConst this_value,
     };
     JSValue promise = new_request(ctx, bus, I2C_OP_DEVICE_CLOSE,
                                   (uint16_t)slot, device->generation,
-                                  device->address, &command.id);
+                                  device->address, &command.id, NULL);
     if (JS_IsException(promise)) return promise;
     if (xQueueSend(bus->commands, &command, 0) != pdTRUE) {
         i2c_request_t *request = find_request(bus, command.id,
@@ -1192,6 +1253,7 @@ static JSValue js_device_close(JSContext *ctx, JSValueConst this_value,
                                     "I2C operation queue full");
         return promise;
     }
+    ++bus->native_pending;
     device->closing = true;
     device->close_request_id = command.id;
     device->close_promise = JS_DupValue(ctx, promise);
@@ -1214,8 +1276,8 @@ static JSValue js_bus_probe(JSContext *ctx, JSValueConst this_value,
     };
     if (!parse_operation_options(ctx, argc, argv, 1,
                                  I2C_PROBE_TIMEOUT_DEFAULT_MS,
-                                 &command.timeout_ms)) return JS_EXCEPTION;
-    return enqueue_command(ctx, bus, &command);
+                                 &command.timeout_ms, false)) return JS_EXCEPTION;
+    return enqueue_command(ctx, bus, &command, JS_UNDEFINED);
 }
 
 static JSValue js_bus_scan(JSContext *ctx, JSValueConst this_value,
@@ -1255,7 +1317,7 @@ static JSValue js_bus_scan(JSContext *ctx, JSValueConst this_value,
     };
     command.read_data = malloc(command.read_size);
     if (!command.read_data) return JS_ThrowOutOfMemory(ctx);
-    return enqueue_command(ctx, bus, &command);
+    return enqueue_command(ctx, bus, &command, JS_UNDEFINED);
 }
 
 static JSValue js_bus_close(JSContext *ctx, JSValueConst this_value,
@@ -1273,7 +1335,7 @@ static JSValue js_bus_close(JSContext *ctx, JSValueConst this_value,
     if (bus_is_closing(state)) return JS_DupValue(ctx, state->close_promise);
     uint32_t request_id = 0;
     JSValue promise = new_request(ctx, state, I2C_OP_BUS_CLOSE, UINT16_MAX,
-                                  0, UINT16_MAX, &request_id);
+                                  0, UINT16_MAX, &request_id, NULL);
     if (JS_IsException(promise)) return promise;
     state->close_request_id = request_id;
     state->close_promise = JS_DupValue(ctx, promise);

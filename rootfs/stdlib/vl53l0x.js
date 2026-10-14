@@ -215,7 +215,8 @@ export class VL53L0X {
   }
 
   async _read(reg, length = 1) {
-    return this.device.writeRead(new Uint8Array([reg]), length, {timeoutMs: this._ioTimeout()});
+    return this.device.writeRead(new Uint8Array([reg]), length,
+      {timeoutMs: this._ioTimeout(), signal: this._readSignal});
   }
   async _u8(reg) { return (await this._read(reg))[0]; }
   async _u16(reg) {
@@ -247,6 +248,7 @@ export class VL53L0X {
   }
 
   _ioTimeout() {
+    if (this._readSignal?.aborted) throw this._readSignal.reason;
     if (this._readDeadline) {
       const remaining = this._readDeadline - this._now();
       if (remaining <= 0) {
@@ -401,18 +403,25 @@ export class VL53L0X {
       throw new TypeError("read options must be an object");
     }
     for (const key of Object.keys(options)) {
-      if (key !== "timeoutMs") throw new TypeError("unknown read option: " + key);
+      if (key !== "timeoutMs" && key !== "signal") throw new TypeError("unknown read option: " + key);
     }
     const timeoutMs = options.timeoutMs === undefined ? this.timeoutMs : options.timeoutMs;
+    const signal = options.signal;
+    if (signal !== undefined && !(signal instanceof AbortSignal)) {
+      throw new TypeError("signal must be an AbortSignal");
+    }
     if (typeof timeoutMs !== "number") throw new TypeError("timeoutMs must be a number");
     if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 60000) {
       throw new RangeError("timeoutMs must be 0..60000");
     }
     const deadline = timeoutMs > 0 ? this._now() + timeoutMs : 0;
-    return this._run(async () => {
+    if (signal?.aborted) return Promise.reject(signal.reason);
+    const operation = this._run(async () => {
       this._readTimeoutMs = timeoutMs;
       this._readDeadline = deadline;
+      this._readSignal = signal;
       try {
+        this._ioTimeout();
         this._ready();
         if (!this.continuous) {
           await this._restoreStopVariable();
@@ -430,7 +439,18 @@ export class VL53L0X {
       } finally {
         this._readTimeoutMs = undefined;
         this._readDeadline = 0;
+        this._readSignal = undefined;
       }
+    });
+    if (!signal) return operation;
+    return new Promise((resolve, reject) => {
+      const abort = () => { signal.removeEventListener("abort", abort); reject(signal.reason); };
+      signal.addEventListener("abort", abort);
+      operation.then(value => {
+        signal.removeEventListener("abort", abort); resolve(value);
+      }, error => {
+        signal.removeEventListener("abort", abort); reject(error);
+      });
     });
   }
 

@@ -15,6 +15,7 @@ TLS 集成在 `net` 中，不新增全局 `tls` 对象或独立 Runtime 模块�
 
 ```ts
 type IOOptions = {timeoutMs?: number};
+type ReadOptions = IOOptions & {signal?: AbortSignal};
 type Address = {address: string; port: number; family: 4 | 6};
 
 type DialTCPOptions = {
@@ -34,7 +35,7 @@ interface TCPConn {
   readonly remoteAddress: Address;
   readonly closed: boolean;
 
-  read(maxBytes: number, options?: IOOptions): Promise<Uint8Array | null>;
+  read(maxBytes: number, options?: ReadOptions): Promise<Uint8Array | null>;
   write(data: ArrayBuffer | Uint8Array | Int8Array | Uint8ClampedArray,
         options?: IOOptions): Promise<number>;
   closeWrite(options?: IOOptions): Promise<void>;
@@ -300,3 +301,7 @@ mbedTLS、bundle 验证代码及本机生成的 TLS 证书，覆盖系统和附�
 有效期错误、连接隔离、分段读写、背压、关闭、截断及握手期间其他连接的推进。
 可设置 `SANITIZE=address,undefined` 检查内存生命周期；依赖本地 ESP-IDF
 源码、CMake、C 编译器以及 Python `cryptography`。不连接外部服务。
+
+`conn.read()` 支持 `options.signal`，取消时以 `signal.reason` reject，
+默认错误为 AbortError，code 为 ABORTED。连接保持打开；worker 确认前
+新读取可能暂时返回 BUSY。详见[异步读取取消](abort.md)。

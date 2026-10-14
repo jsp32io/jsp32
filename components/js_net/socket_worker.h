@@ -8,6 +8,7 @@
 #include "freertos/semphr.h"
 #include "sdkconfig.h"
 #include "socket_tls.h"
+#include "js_abort.h"
 
 typedef enum { SOCKET_DIAL, SOCKET_LISTEN, SOCKET_ACCEPT, SOCKET_READ,
                SOCKET_WRITE, SOCKET_END, SOCKET_DIAL_TLS } socket_operation_t;
@@ -18,6 +19,7 @@ struct socket_request {
     unsigned slot;
     uint32_t generation;
     int64_t deadline_us;
+    js_cancel_t *cancel;
     uint8_t *data;
     size_t size;
     size_t transferred;

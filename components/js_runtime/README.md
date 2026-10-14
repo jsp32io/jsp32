@@ -227,3 +227,19 @@ Runtime 停止时先让外设模块停止 worker 和清理自己的请求，再�
 `js_runtime_start()` 等待 Runtime、Context、内建 API 和外部模块完成初始化后才返回。`js_runtime_stop()` 投递停止事件；停止流程会拒绝新事件，等待正在投递的生产者退出，释放 Queue 及其中的 payload、Timer、监听器、事件处理器、Context 和 Runtime。
 
 当前实现是单 Runtime、单次启动模型；停止后不支持再次启动。
+
+## 异步读取取消
+
+Runtime 提供全局 AbortController / AbortSignal，读取 API 通过 options.signal
+连接到公共请求表。接口和各外设取消语义见
+[异步读取取消](../../man/js/abort.md)。
+
+原生模块通过 `js_abort_get_signal()` 验证并取得 owned signal，
+`js_abort_attach()` 将 signal 订阅绑定到请求 ID/generation；完成时公共
+请求表先解除订阅，再调用取消钩子及 Promise settler。JS signal 和订阅只在
+EventLoop 中访问。worker 只持有 `js_cancel_t` 的原子标记；请求表和原生
+命令各保留一个引用，取消 Promise 后保留 worker 引用至原生完成。
+取消的原生操作必须继续占用模块的资源及队列预算，不能仅依赖 requests.count。
+
+主机取消与生命周期测试：`python3 tests/js_request_host/run.py`；
+`SANITIZE=address,undefined` 启用内存检查。

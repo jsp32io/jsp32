@@ -54,7 +54,8 @@ bit 发送结束后拉低。TTL、RS-232、RS-485 共用同一套字节 API。
 
 write 接受 UTF-8 字符串、Uint8Array 或 ArrayBuffer。
 read 不保证读满 maxBytes；等到至少一个字节即可返回。
-options 为 `{timeoutMs?: number}`，取值为整数 0..60000，默认 0 表示无限等待。
+options 为 `{timeoutMs?: number, signal?: AbortSignal}`。
+timeoutMs 为整数 0..60000，默认 0 表示无限等待。
 有限超时从调用时计算，包含排队时间；超时 reject Error，带有
 `code: "TIMEOUT"` 和 `operation: "read"` 或 `"readFrame"`。
 超时后端口仍可使用。旧的数字超时参数不接受。
@@ -98,3 +99,6 @@ close 可重复调用。它停止 worker，以 `UART closed` 拒绝未完成操�
 Runtime 退出会关闭全部端口。
 
 协议示例见 [Modbus 标准库](modbus.md)。
+
+读取支持可选的 `signal`。取消时以 `signal.reason` reject，默认错误为
+`AbortError`（`code: "ABORTED"`），不关闭句柄；详见[异步读取取消](abort.md)。

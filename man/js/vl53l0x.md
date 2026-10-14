@@ -40,7 +40,7 @@ GPIO 初始化会检查 XSHUT 是否已被配置，避免覆盖其他用途。
 连续模式周期必须为 0，或不小于测量预算且小于非零 `timeoutMs`，最大 60000ms。
 轮询会异步让出事件循环。超时抛出 `code="TIMEOUT"`；原生 I²C 错误直接传递。
 `read(options?)` 和 `readRangeMillimeters(options?)` 支持
-`{timeoutMs?: number}`（整数 0..60000），默认使用构造选项，0 表示无限等待。
+`{timeoutMs?: number, signal?: AbortSignal}`（整数 0..60000），默认使用构造选项，0 表示无限等待。
 读取期限从调用时计算，包含排队及全部传输、轮询；超时 reject TIMEOUT，
 公共读取期限的错误带 `operation: "read"`。单次选项不修改实例默认超时。
 `init()` 的构造超时仍分别用于每次总线传输和每段轮询，不是整个初始化期限。
@@ -93,3 +93,6 @@ Pololu 和 ST 的许可声明已内嵌库文件。
 入口统一管理 XSHUT 和共享总线；关闭单颗实例不会拉低 XSHUT，也不会关闭
 其它实例的总线。不要在运行中单独复位模块，否则其地址会恢复 `0x29`。
 初始化失败时，入口关闭设备和总线，并保持已管理的 XSHUT 为低。
+
+读取支持可选的 `signal`。取消时以 `signal.reason` reject，默认错误为
+`AbortError`（`code: "ABORTED"`），不关闭句柄；详见[异步读取取消](abort.md)。

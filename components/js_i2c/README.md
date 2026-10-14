@@ -102,3 +102,8 @@ try {
 `device.close()` 和 `bus.close()` 都是幂等的。调用后句柄立即不再接受
 新操作，Promise 在原生资源完成释放后 resolve。Runtime 停止时会关闭
 所有 bus 并 reject 未完成操作。
+
+`device.read` 和 `device.writeRead` 支持 `options.signal`。取消只拒绝
+这次等待，不关闭设备或总线；排队事务跳过，已开始的硬件事务安全结束
+后释放缓冲。默认取消错误为 AbortError（code: ABORTED）。详见
+[异步读取取消](../../man/js/abort.md)。

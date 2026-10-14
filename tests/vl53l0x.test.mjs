@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
+import {getEventListeners} from 'node:events';
 
 const source = await readFile(new URL('../rootfs/stdlib/vl53l0x.js', import.meta.url), 'utf8');
 const {VL53L0X} = await import(`data:text/javascript,${encodeURIComponent(source)}`);
@@ -151,6 +152,58 @@ test('read options reject malformed values before any I/O', async () => {
   }
   assert.doesNotThrow(() => new VL53L0X({timeoutMs: 0}));
   assert.equal(f.writes.length, 0);
+});
+
+test('abort rejects an active read promptly and serializes cleanup before the next read', async () => {
+  const f = fixture();
+  await f.sensor.init();
+  const original = f.sensor.device.writeRead;
+  let release, started;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const entered = new Promise(resolve => { started = resolve; });
+  const controller = new AbortController();
+  const reason = Object.assign(new Error('cancelled'), {code: 'ABORTED'});
+  f.sensor.device.writeRead = async (data, length, options) => {
+    if (data[0] === 0x13) {
+      assert.equal(options.signal, controller.signal);
+      started(); await blocked;
+    }
+    return original(data, length);
+  };
+  const pending = assert.rejects(f.sensor.read({timeoutMs: 1000, signal: controller.signal}), error => error === reason);
+  await entered;
+  controller.abort(reason); await pending;
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  f.sensor.device.writeRead = original;
+  const next = f.sensor.read();
+  release();
+  assert.equal((await next).distanceMm, 321);
+  assert.equal(f.sensor._readSignal, undefined);
+  await f.sensor.close();
+});
+
+test('pre-aborted and queued-aborted reads perform no measurement I/O', async () => {
+  const f = fixture();
+  await f.sensor.init();
+  f.writes.length = 0;
+  const controller = new AbortController();
+  const reason = new Error('cancel queued');
+  controller.abort(reason);
+  await assert.rejects(f.sensor.readRangeMillimeters({signal: controller.signal}), error => error === reason);
+  assert.equal(f.writes.length, 0);
+  assert.throws(() => f.sensor.read({signal: {aborted: false}}), TypeError);
+  let release;
+  const original = f.sensor._tail;
+  f.sensor._tail = new Promise(resolve => { release = resolve; });
+  const queued = new AbortController();
+  const pending = assert.rejects(f.sensor.read({signal: queued.signal}), error => error === reason);
+  queued.abort(reason); await pending;
+  assert.equal(getEventListeners(queued.signal, 'abort').length, 0);
+  release(); await f.sensor._tail;
+  assert.equal(f.writes.length, 0);
+  f.sensor._tail = original;
+  assert.equal(await f.sensor.readRangeMillimeters(), 321);
+  await f.sensor.close();
 });
 
 function addressBus({occupied = [], failChange = false} = {}) {

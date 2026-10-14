@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory(prefix="ost-js-net-test-") as directory:
         command += ["-I", str(include)]
     command += [str(tests / "test.c")]
     command += [str(root / "components/js_net" / name) for name in ("js_net.c", "socket_worker.c", "socket_tls.c")]
-    command += [str(root / "components/js_runtime/js_request.c")]
+    command += [str(root / "components/js_runtime/js_request.c"), str(root / "components/js_runtime/js_abort.c")]
     command += [str(temp / "bundle.c"), str(temp / "bundle.S")]
     command += [str(quickjs / name) for name in
                 ("quickjs.c", "cutils.c", "libregexp.c", "libunicode.c", "dtoa.c")]

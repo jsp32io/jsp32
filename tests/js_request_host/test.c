@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "js_request.h"
+#include "js_abort.h"
+#include <string.h>
 
 typedef struct {
     js_request_table_t *table;
@@ -160,11 +162,85 @@ static void immediate_and_borrowed(JSContext *ctx)
     JS_FreeValue(ctx, promise);
 }
 
+static JSValue evaluate(JSContext *ctx, const char *source)
+{
+    JSValue value = JS_Eval(ctx, source, strlen(source), "abort-test", JS_EVAL_TYPE_GLOBAL);
+    if (JS_IsException(value)) {
+        JSValue error = JS_GetException(ctx);
+        const char *message = JS_ToCString(ctx, error);
+        fprintf(stderr, "%s\n", message);
+        JS_FreeCString(ctx, message); JS_FreeValue(ctx, error);
+        abort();
+    }
+    return value;
+}
+
+static void abort_signals(JSContext *ctx)
+{
+    assert(js_abort_init(ctx) == 0);
+    JSValue script = evaluate(ctx,
+        "globalThis.controller = new AbortController();"
+        "if (!(controller.signal instanceof AbortSignal) || controller.signal.aborted) throw Error('initial');"
+        "globalThis.calls = 0; const listener = () => calls++;"
+        "controller.signal.addEventListener('abort', listener);"
+        "controller.signal.addEventListener('abort', listener);"
+        "controller.signal.addEventListener('abort', () => { throw Error('listener'); });");
+    JS_FreeValue(ctx, script);
+    JSValue options = evaluate(ctx, "({signal: controller.signal})");
+    JSValue signal = js_abort_get_signal(ctx, options);
+    assert(!JS_IsException(signal));
+    js_request_table_t table;
+    js_request_table_init(&table, ctx);
+    int cancelled = 0, disposed = 0;
+    uint32_t id;
+    JSValue promise = request(&table, 1, &cancelled, &disposed, &id);
+    assert(js_abort_attach(&table, id, 1, signal));
+    script = evaluate(ctx, "controller.abort(); controller.abort('later');");
+    JS_FreeValue(ctx, script);
+    assert(table.count == 0 && cancelled == 1 && disposed == 1);
+    assert(JS_PromiseState(ctx, promise) == JS_PROMISE_REJECTED);
+    JSValue reason = js_abort_reason(ctx, signal);
+    JSValue result = JS_PromiseResult(ctx, promise);
+    assert(JS_StrictEq(ctx, result, reason) == 1);
+    assert(!js_request_resolve(&table, id, 1, JS_UNDEFINED));
+    script = evaluate(ctx,
+        "if (calls !== 1 || controller.signal.reason.name !== 'AbortError' ||"
+        "controller.signal.reason.code !== 'ABORTED') throw Error('abort event');"
+        "let thrown=false; try {controller.signal.throwIfAborted();} catch(e) {thrown=e===controller.signal.reason;}"
+        "if (!thrown) throw Error('throwIfAborted');");
+    JS_FreeValue(ctx, script);
+    JS_FreeValue(ctx, result); JS_FreeValue(ctx, reason); JS_FreeValue(ctx, promise);
+    promise = request(&table, 1, &cancelled, &disposed, &id);
+    assert(js_abort_attach(&table, id, 1, signal));
+    assert(table.count == 0 && cancelled == 2 && disposed == 2);
+    JS_FreeValue(ctx, promise); JS_FreeValue(ctx, signal); JS_FreeValue(ctx, options);
+
+    options = evaluate(ctx, "globalThis.completed = new AbortController(); ({signal: completed.signal})");
+    signal = js_abort_get_signal(ctx, options);
+    promise = request(&table, 2, &cancelled, &disposed, &id);
+    assert(js_abort_attach(&table, id, 2, signal));
+    assert(js_request_resolve(&table, id, 2, JS_TRUE));
+    script = evaluate(ctx, "completed.abort('ignored');");
+    JS_FreeValue(ctx, script);
+    assert(cancelled == 2 && disposed == 3 && JS_PromiseState(ctx, promise) == JS_PROMISE_FULFILLED);
+    JS_FreeValue(ctx, promise); JS_FreeValue(ctx, signal); JS_FreeValue(ctx, options);
+
+    options = evaluate(ctx, "({signal: {aborted:false}})");
+    signal = js_abort_get_signal(ctx, options);
+    assert(JS_IsException(signal));
+    JS_FreeValue(ctx, JS_GetException(ctx)); JS_FreeValue(ctx, options);
+    js_cancel_t *token = js_cancel_new();
+    assert(token && !js_cancelled(token));
+    js_cancel_retain(token); js_cancel_abort(1, token); js_cancel_release(token);
+    assert(js_cancelled(token)); js_cancel_release(token);
+}
+
 int main(void)
 {
     JSRuntime *runtime = JS_NewRuntime();
     JSContext *ctx = JS_NewContext(runtime);
     assert(ctx);
+    abort_signals(ctx);
     lifecycle(ctx);
     deadlines_and_wrap(ctx);
     immediate_and_borrowed(ctx);

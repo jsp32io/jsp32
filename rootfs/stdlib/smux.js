@@ -21,14 +21,22 @@ function integer(value, name, max = 2147483647) {
 // Waiters always wake successfully and recheck their condition, including errors.
 class Signal {
   constructor() { this.waiters = []; }
-  wait(timeoutMs = 0) {
+  wait(timeoutMs = 0, signal) {
     return new Promise((resolve, reject) => {
       let timer;
-      const wake = () => { clearTimeout(timer); resolve(); };
-      this.waiters.push(wake);
-      if (timeoutMs > 0) timer = setTimeout(() => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
         const index = this.waiters.indexOf(wake);
         if (index >= 0) this.waiters.splice(index, 1);
+      };
+      const wake = () => { cleanup(); resolve(); };
+      const abort = () => { cleanup(); reject(signal.reason); };
+      if (signal?.aborted) { abort(); return; }
+      this.waiters.push(wake);
+      signal?.addEventListener('abort', abort);
+      if (timeoutMs > 0) timer = setTimeout(() => {
+        cleanup();
         const failure = error('TIMEOUT', 'stream read timeout');
         failure.operation = 'read';
         reject(failure);
@@ -62,14 +70,19 @@ class Stream {
       throw new TypeError('read options must be an object');
     }
     for (const key of Object.keys(options)) {
-      if (key !== 'timeoutMs') throw new TypeError(`unknown read option: ${key}`);
+      if (key !== 'timeoutMs' && key !== 'signal') throw new TypeError(`unknown read option: ${key}`);
     }
     const timeoutMs = options.timeoutMs === undefined ? 0 : options.timeoutMs;
+    const signal = options.signal;
+    if (signal !== undefined && !(signal instanceof AbortSignal)) {
+      throw new TypeError('signal must be an AbortSignal');
+    }
     if (typeof timeoutMs !== 'number') throw new TypeError('timeoutMs must be a number');
     if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 60000) {
       throw new RangeError('timeoutMs must be 0..60000');
     }
     const deadline = timeoutMs > 0 ? now() + timeoutMs : 0;
+    if (signal?.aborted) throw signal.reason;
     if (this._reading) throw error('BUSY', 'stream read already pending');
     this._reading = true;
     try {
@@ -82,7 +95,7 @@ class Stream {
           failure.operation = 'read';
           throw failure;
         }
-        await this._signal.wait(remaining);
+        await this._signal.wait(remaining, signal);
       }
       const chunk = this._chunks[0];
       const size = Math.min(maxBytes, chunk.length);

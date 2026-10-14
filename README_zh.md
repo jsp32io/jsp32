@@ -12,8 +12,8 @@ JSP32 是面向 ESP32-S3 的 JavaScript 可编程设备固件。你可以用脚�
 
 - **用 JavaScript 编写设备逻辑**：QuickJS 支持 ES 模块、Promise、定时器和事件监听。
   脚本存放在设备文件系统中，更新业务逻辑无需重新编译固件。
-  异步读取统一使用 `{timeoutMs}` 选项：0 表示无限等待，等待超时以
-  `code: "TIMEOUT"` 拒绝 Promise。
+  异步读取统一使用 `{timeoutMs, signal}` 选项：0 表示无限等待，等待超时以
+  `code: "TIMEOUT"` 拒绝 Promise；AbortController 可取消单次读取而无需关闭句柄。
 - **插件化部署与配置**：插件按依赖顺序启动，可以声明设置项、登记资源清理函数，
   并在网页或桌面控制台中查看状态、修改配置。
 - **丰富的硬件接口**：GPIO 输入输出与去抖、脉冲和正交编码器计数、ADC 采样、

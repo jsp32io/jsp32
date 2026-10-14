@@ -60,6 +60,16 @@
   await echo(conn);
   await reject(conn.read(16, {timeoutMs: 30}), "TIMEOUT");
   check(!conn.closed);
+  globalThis.testStage = "TLS read cancellation";
+  const controller = new AbortController();
+  const cancelled = conn.read(16, {signal: controller.signal})
+    .then(() => check(false), error => check(error === controller.signal.reason && error.code === "ABORTED"));
+  await conn.write(new Uint8Array(0)); // Let the worker begin the pending read.
+  controller.abort();
+  await cancelled;
+  check(!conn.closed);
+  await conn.write(new Uint8Array(0)); // Wait for native cancellation acknowledgement.
+  await echo(conn);
   sendMode(1);
   await conn.closeWrite();
   sendMode(0);

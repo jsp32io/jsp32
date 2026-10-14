@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory(prefix="ost-js-request-test-") as directory:
         command += ["-fsanitize=" + os.environ["SANITIZE"], "-fno-omit-frame-pointer"]
     # Keep strict warnings on our component and tests, independently of upstream.
     objects = []
-    for name in ("tests/js_request_host/test.c", "components/js_runtime/js_request.c"):
+    for name in ("tests/js_request_host/test.c", "components/js_runtime/js_request.c", "components/js_runtime/js_abort.c"):
         output = Path(directory) / (Path(name).stem + ".o")
         subprocess.run(command + ["-Wall", "-Wextra", "-Werror", "-c", str(root / name),
                                   "-o", str(output)], check=True)

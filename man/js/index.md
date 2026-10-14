@@ -17,6 +17,7 @@ JSP32 使用 QuickJS 执行 LittleFS 中的 `/main.js`。本文档按 API 分类
 | [Console](console.md) | `console.log` 日志输出 | 全局 `console` |
 | [定时器](timers.md) | `setTimeout`、`setInterval`、`monotonicMs` 及取消 | 全局函数 |
 | [Events](events.md) | 消息订阅、投递、取消和队列状态 | 全局 `events` |
+| [异步读取取消](abort.md) | AbortController、AbortSignal、单次读取取消 | 全局构造器 |
 | [Filesystem](fs.md) | LittleFS 目录、文件读写与删除 | 全局 `fs` |
 | [开发和部署插件](plugins.md) | 插件格式、依赖声明与上传步骤 | `/plugins/<名称>/index.js` |
 | [遥测数据](telemetry.md) | 插件遥测字段、发送规则和当前 MQTT 上报方式 | 插件 `telemetry` 声明 |
@@ -59,10 +60,11 @@ JSP32 使用 QuickJS 执行 LittleFS 中的 `/main.js`。本文档按 API 分类
 
 ## 异步读取约定
 
-以下接口的最后一个参数均为可选的 `{timeoutMs?: number}` 对象。
+以下接口的最后一个参数均为可选的 `{timeoutMs?: number, signal?: AbortSignal}` 对象。
 `timeoutMs` 为非负整数，0 表示无限等待；等待超时通过 Promise reject
 报告，错误的 `code` 为 `"TIMEOUT"`。未知 options 字段和数字 options
 不接受。各模块仍保留自身的数据格式、长度限制及默认超时。
+`signal` 用于取消单次等待，详见[异步读取取消](abort.md)。
 
 | 接口 | 默认超时 | 成功返回值 |
 | --- | --- | --- |

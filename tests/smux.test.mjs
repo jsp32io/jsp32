@@ -1,11 +1,46 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
+import {getEventListeners} from 'node:events';
 
 const source = await readFile(new URL('../rootfs/stdlib/smux.js', import.meta.url), 'utf8');
 const {Session, client, server} = await import(`data:text/javascript,${encodeURIComponent(source)}`);
 const options = {keepAliveDisabled: true};
 const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test('abort cancels only one read and removes its signal and stream waiters', async t => {
+  const {session, input} = harness();
+  t.after(() => session.close());
+  const stream = await session.openStream();
+  const controller = new AbortController();
+  const reason = Object.assign(new Error('cancelled'), {code: 'ABORTED'});
+  const pending = assert.rejects(stream.read(16, {signal: controller.signal}), error => error === reason);
+  controller.abort(reason);
+  await pending;
+  assert.equal(stream._signal.waiters.length, 0);
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  assert.equal(stream.closed, false);
+  const next = stream.read(16);
+  input.feed(frame(2, stream.id, [42]));
+  assert.deepEqual([...await next], [42]);
+  await assert.rejects(stream.read(16, {signal: controller.signal}), error => error === reason);
+  await assert.rejects(stream.read(16, {signal: {aborted: false}}), TypeError);
+});
+
+test('success and timeout both detach the abort listener', async t => {
+  const {session, input} = harness();
+  t.after(() => session.close());
+  const stream = await session.openStream();
+  const controller = new AbortController();
+  const next = stream.read(16, {signal: controller.signal});
+  input.feed(frame(2, stream.id, [9]));
+  assert.deepEqual([...await next], [9]);
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  await assert.rejects(stream.read(16, {timeoutMs: 5, signal: controller.signal}), {code: 'TIMEOUT'});
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  controller.abort();
+  assert.equal(stream._signal.waiters.length, 0);
+});
 
 test('read timeout removes its waiter and leaves the stream usable', async t => {
   const {session, input} = harness();

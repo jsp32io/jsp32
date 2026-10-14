@@ -70,8 +70,8 @@ write 完成前底层可以使用传入的数组。应用创建会话后应由�
 | `await stream.write(bytes)` | 写入 Uint8Array，按 maxFrameSize 分帧，返回完整写入的字节数 |
 | `await stream.close()` | 丢弃该流接收缓存并发送 FIN，重复调用返回同一 Promise |
 
-`read` 的 options 为 `{timeoutMs?: number}`，取值为整数 0..60000，
-默认 0 表示无限等待。有限超时从调用时计算，超时 reject，错误带
+`read` 的 options 为 `{timeoutMs?: number, signal?: AbortSignal}`；timeoutMs
+为整数 0..60000，默认 0 表示无限等待。有限超时从调用时计算，超时 reject，错误带
 `code: "TIMEOUT"` 和 `operation: "read"`；流仍可继续读取。
 
 流是字节流，read 的边界与 write 的边界无关。每个流只允许一个待完成的
@@ -110,3 +110,6 @@ NOP=3，只有 PSH 可携带数据。客户端 ID 使用奇数，服务端使用
 验证命令：`node tests/smux.test.mjs`。实际 Go 互通验证：
 `node tests/smux_host/run.mjs`，需要 Go 和 github.com/xtaci/smux v1.5.35，
 通过标准输入/输出测试 JS 客户端和服务端各三个并发流，无需网络连接。
+
+读取支持可选的 `signal`。取消时以 `signal.reason` reject，默认错误为
+`AbortError`（`code: "ABORTED"`），不关闭句柄；详见[异步读取取消](../abort.md)。

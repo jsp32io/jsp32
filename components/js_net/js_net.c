@@ -46,6 +46,7 @@ static struct {
     js_request_table_t promises;
     js_request_table_t closes;
     size_t buffered;
+    unsigned native_pending;
     JSValue error_constructor;
     bool initialized;
 } s_net;
@@ -134,11 +135,11 @@ static bool options_valid(JSContext *ctx, JSValueConst options,
     return valid;
 }
 
-static bool parse_timeout(JSContext *ctx, JSValueConst options, int *timeout)
+static bool parse_timeout(JSContext *ctx, JSValueConst options, int *timeout, bool reading)
 {
     if (JS_IsUndefined(options)) return true;
-    static const char *const fields[] = {"timeoutMs"};
-    return options_valid(ctx, options, fields, 1) &&
+    static const char *const fields[] = {"timeoutMs", "signal"};
+    return options_valid(ctx, options, fields, reading ? 2 : 1) &&
            option_integer(ctx, options, "timeoutMs", 0, INT32_MAX, timeout);
 }
 
@@ -218,25 +219,62 @@ static void free_request(JSContext *ctx, net_request_t *request)
     JS_FreeValue(ctx, request->owner);
     free(request->native.data);
     free(request->native.ca);
+    js_cancel_release(request->native.cancel);
     free(request);
 }
 
-static JSValue submit(JSContext *ctx, socket_request_t *native, JSValueConst owner, int timeout)
+static void cancel_read(uint32_t id, void *opaque)
 {
-    if (s_net.promises.count >= CONFIG_JS_NET_MAX_PENDING ||
+    net_request_t *request = opaque;
+    js_cancel_abort(id, request->native.cancel);
+}
+static void dispose_read(void *opaque)
+{
+    net_request_t *request = opaque;
+    js_cancel_release(request->native.cancel);
+}
+static JSValue submit(JSContext *ctx, socket_request_t *native, JSValueConst owner,
+                       int timeout, JSValueConst signal_value)
+{
+    JSValue signal = JS_DupValue(ctx, signal_value);
+    if (JS_IsException(signal) || js_abort_aborted(ctx, signal)) {
+        free(native->data); free(native->ca);
+        if (JS_IsException(signal)) return signal;
+        JSValue reason = js_abort_reason(ctx, signal);
+        JSValue promise = js_request_promise(ctx, true, reason);
+        JS_FreeValue(ctx, reason); JS_FreeValue(ctx, signal);
+        return promise;
+    }
+    if (s_net.native_pending >= CONFIG_JS_NET_MAX_PENDING ||
         native->size + native->ca_size > CONFIG_JS_NET_BUFFER_LIMIT - s_net.buffered) {
         free(native->data);
         free(native->ca);
+        JS_FreeValue(ctx, signal);
         return immediate_promise(ctx, "QUEUE_FULL", native->operation);
     }
     net_request_t *request = calloc(1, sizeof(*request));
-    if (!request) { free(native->data); free(native->ca); return JS_ThrowOutOfMemory(ctx); }
-    JSValue promise = js_request_create(&s_net.promises, native->generation,
-                                        request, NULL, NULL, &request->id);
-    if (JS_IsException(promise)) { free(native->data); free(native->ca); free(request); return promise; }
+    if (!request) { free(native->data); free(native->ca); JS_FreeValue(ctx, signal); return JS_ThrowOutOfMemory(ctx); }
     request->native = *native;
-    request->native.deadline_us = timeout ? esp_timer_get_time() + (int64_t)timeout * 1000 : 0;
     request->owner = JS_DupValue(ctx, owner);
+    request->native.cancel = JS_IsUndefined(signal) ? NULL : js_cancel_new();
+    if (!JS_IsUndefined(signal) && !request->native.cancel) {
+        JS_FreeValue(ctx, signal); free_request(ctx, request); return JS_ThrowOutOfMemory(ctx);
+    }
+    js_cancel_retain(request->native.cancel);
+    JSValue promise = js_request_create(&s_net.promises, native->generation,
+                                        request, dispose_read, cancel_read, &request->id);
+    if (JS_IsException(promise)) {
+        js_cancel_release(request->native.cancel); JS_FreeValue(ctx, signal);
+        free_request(ctx, request); return promise;
+    }
+    if (!js_abort_attach(&s_net.promises, request->id, native->generation, signal)) {
+        JSValue error = JS_GetException(ctx);
+        js_request_reject(&s_net.promises, request->id, native->generation, error);
+        JS_FreeValue(ctx, error); JS_FreeValue(ctx, signal); free_request(ctx, request);
+        return promise;
+    }
+    JS_FreeValue(ctx, signal);
+    request->native.deadline_us = timeout ? esp_timer_get_time() + (int64_t)timeout * 1000 : 0;
     socket_request_t *command = &request->native;
     if (xQueueSend(s_net.engine.commands, &command, 0) != pdTRUE) {
         JSValue error = make_error(ctx, "QUEUE_FULL", native->operation, 0, 0);
@@ -249,6 +287,7 @@ static JSValue submit(JSContext *ctx, socket_request_t *native, JSValueConst own
     request->next = s_net.requests;
     s_net.requests = request;
     s_net.buffered += native->size + native->ca_size;
+    ++s_net.native_pending;
     net_slot_t *slot = &s_net.slots[native->slot];
     ++slot->pending;
     if (native->operation == SOCKET_READ) slot->reading = true;
@@ -419,7 +458,7 @@ static JSValue js_open(JSContext *ctx, JSValueConst this_value, int argc,
     if (slot < 0) { free(command.ca); return immediate_promise(ctx, "RESOURCE_LIMIT", command.operation); }
     command.slot = slot;
     s_net.slots[slot] = (net_slot_t){0};
-    JSValue promise = submit(ctx, &command, JS_UNDEFINED, timeout);
+    JSValue promise = submit(ctx, &command, JS_UNDEFINED, timeout, JS_UNDEFINED);
     if (s_net.slots[slot].pending == 0) socket_engine_close(&s_net.engine, slot, command.generation);
     return promise;
 }
@@ -463,7 +502,7 @@ static JSValue js_io(JSContext *ctx, JSValueConst this_value, int argc,
     int timeout = operation == SOCKET_WRITE || operation == SOCKET_END ? 5000 : 0;
     unsigned options_index = operation == SOCKET_READ || operation == SOCKET_WRITE ? 1 : 0;
     if (!parse_timeout(ctx, argc > (int)options_index ? argv[options_index] : JS_UNDEFINED,
-                        &timeout)) return JS_EXCEPTION;
+                        &timeout, operation == SOCKET_READ)) return JS_EXCEPTION;
     socket_request_t command = {.operation = operation, .slot = handle->slot,
                                 .generation = handle->generation};
     const uint8_t *bytes = NULL;
@@ -481,25 +520,40 @@ static JSValue js_io(JSContext *ctx, JSValueConst this_value, int argc,
             return JS_ThrowRangeError(ctx, "write exceeds maximum transfer size");
         }
     }
+    JSValue signal = operation == SOCKET_READ
+        ? js_abort_get_signal(ctx, argc > 1 ? argv[1] : JS_UNDEFINED) : JS_UNDEFINED;
+    if (JS_IsException(signal)) { JS_FreeValue(ctx, buffer); return JS_EXCEPTION; }
+    if (js_abort_aborted(ctx, signal)) {
+        JS_FreeValue(ctx, buffer);
+        JSValue promise = submit(ctx, &command, this_value, timeout, signal);
+        JS_FreeValue(ctx, signal);
+        return promise;
+    }
     const char *error = NULL;
     net_slot_t *slot = &s_net.slots[handle->slot];
     if (socket_engine_closed(&s_net.engine, handle->slot, handle->generation)) error = "CLOSED";
     else if ((operation == SOCKET_WRITE || operation == SOCKET_END) && slot->ending) error = "CLOSED";
     else if ((operation == SOCKET_READ && slot->reading) ||
              (operation == SOCKET_ACCEPT && slot->accepting)) error = "BUSY";
-    else if (s_net.promises.count >= CONFIG_JS_NET_MAX_PENDING ||
+    else if (s_net.native_pending >= CONFIG_JS_NET_MAX_PENDING ||
              command.size > CONFIG_JS_NET_BUFFER_LIMIT - s_net.buffered) error = "QUEUE_FULL";
     if (error) {
+        JS_FreeValue(ctx, signal);
         JS_FreeValue(ctx, buffer);
         return immediate_promise(ctx, error, operation);
     }
     if (command.size) {
         command.data = malloc(command.size);
-        if (!command.data) { JS_FreeValue(ctx, buffer); return JS_ThrowOutOfMemory(ctx); }
+        if (!command.data) {
+            JS_FreeValue(ctx, buffer); JS_FreeValue(ctx, signal);
+            return JS_ThrowOutOfMemory(ctx);
+        }
         if (bytes) memcpy(command.data, bytes, command.size);
     }
     JS_FreeValue(ctx, buffer);
-    return submit(ctx, &command, this_value, timeout);
+    JSValue promise = submit(ctx, &command, this_value, timeout, signal);
+    JS_FreeValue(ctx, signal);
+    return promise;
 }
 
 static JSValue js_closed(JSContext *ctx, JSValueConst object)
@@ -554,10 +608,15 @@ static void event_handler(js_runtime_t *runtime, const js_event_t *event, void *
         while (*link != request) link = &(*link)->next;
         *link = request->next;
         s_net.buffered -= native->size + native->ca_size;
+        --s_net.native_pending;
         net_slot_t *slot = &s_net.slots[native->slot];
         --slot->pending;
         if (native->operation == SOCKET_READ) slot->reading = false;
         if (native->operation == SOCKET_ACCEPT) slot->accepting = false;
+        if (!js_request_find(&s_net.promises, request->id, native->generation)) {
+            free_request(ctx, request);
+            continue;
+        }
         JSValue value;
         if (native->error) value = make_error(ctx, native->error, native->operation,
                                              native->system_error, native->transferred);

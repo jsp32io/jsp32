@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "stubs.h"
 #include "js_net.h"
+#include "js_abort.h"
 
 #undef getaddrinfo
 #undef send
@@ -253,6 +254,7 @@ int main(int argc, char **argv)
     events = xQueueCreate(1, sizeof(js_event_t));
     JSRuntime *rt = JS_NewRuntime();
     JSContext *ctx = JS_NewContext(rt);
+    assert(js_abort_init(ctx) == 0);
     js_runtime_t runtime = {.ctx = ctx};
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, "check", JS_NewCFunction(ctx, check, "check", 1));
@@ -261,6 +263,37 @@ int main(int argc, char **argv)
     JS_FreeValue(ctx, global);
     assert(js_net_register() == ESP_OK);
     assert(module_init(&runtime, ctx, module_opaque) == ESP_OK);
+
+    run(&runtime,
+        "(async()=>{"
+        "const server=await net.listenTCP({host:'127.0.0.1',port:0});"
+        "const accepting=server.accept();"
+        "const client=await net.dialTCP({host:'127.0.0.1',port:server.localAddress.port});"
+        "const peer=await accepting;const controller=new AbortController();"
+        "const pending=client.read(16,{signal:controller.signal}).then(()=>check(false),"
+        "e=>check(e===controller.signal.reason&&e.name==='AbortError'&&e.code==='ABORTED'));"
+        "controller.abort();await pending;check(!client.closed);"
+        "await peer.write(new Uint8Array([42]));check((await client.read(16))[0]===42);"
+        "const prior=new AbortController();const reason=Error('custom cancellation');prior.abort(reason);"
+        "await client.read(16,{signal:prior.signal}).then(()=>check(false),e=>check(e===reason));"
+        "let invalid=false;try{client.read(16,{signal:{aborted:false}})}catch(e){invalid=e instanceof TypeError}"
+        "check(invalid);await peer.write(new Uint8Array([7]));check((await client.read(16))[0]===7);"
+        "controller.abort('ignored');await client.close();await peer.close();await server.close();})()");
+
+    run(&runtime,
+        "(async()=>{"
+        "const server=await net.listenTCP({host:'127.0.0.1',port:0});"
+        "const clients=[],peers=[];"
+        "for(let i=0;i<7;i++){const accepting=server.accept();"
+        "clients.push(await net.dialTCP({host:'127.0.0.1',port:server.localAddress.port}));"
+        "peers.push(await accepting);}"
+        "const cancelled=[];for(const client of clients){const c=new AbortController();"
+        "cancelled.push(client.read(4096,{signal:c.signal}).catch(e=>check(e.code==='ABORTED')));c.abort();}"
+        "const filling=clients[0].write(new Uint8Array(0));"
+        "await clients[0].write(new Uint8Array(0)).then(()=>check(false),e=>check(e.code==='QUEUE_FULL'));"
+        "await Promise.all(cancelled);await filling;"
+        "for(const client of clients)await client.close();for(const peer of peers)await peer.close();"
+        "await server.close();})()");
 
     run(&runtime,
         "(async()=>{"

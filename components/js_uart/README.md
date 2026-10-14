@@ -85,7 +85,8 @@ after the hardware has finished transmitting.
 
 `port.read(maxBytes, options?)` returns a Promise for a `Uint8Array`. It
 resolves as soon as at least one byte is available, up to `maxBytes`.
-`options` is `{timeoutMs?: number}` (integer 0..60000); omitted or zero means
+`options` is `{timeoutMs?: number, signal?: AbortSignal}`. `timeoutMs` is an
+integer 0..60000; omitted or zero means
 unlimited waiting. A finite timeout includes queue time and rejects an Error
 with `code: "TIMEOUT"` and `operation: "read"` or `"readFrame"`.
 Timeout leaves the port usable; partial frames are discarded to resynchronize.
@@ -105,3 +106,9 @@ configurable under **JavaScript UART** in menuconfig.
 operations with `UART closed`, calls `uart_driver_delete()`, releases its pins,
 and invalidates the handle. The controller may then be reopened. Runtime
 shutdown closes every open controller automatically.
+
+Read operations accept an optional `signal` created by `AbortController`.
+Abort rejects the Promise with `signal.reason` (default `AbortError`, code
+`ABORTED`); it stops this read while keeping the port open. A partial frame is
+discarded. Native buffers remain reserved until the worker acknowledges
+completion. See [read cancellation](../../man/js/abort.md).

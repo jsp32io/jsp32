@@ -23,6 +23,8 @@ struct js_request {
     js_request_cancel_fn cancel;
     js_request_dispose_fn dispose;
     int64_t deadline_us;
+    struct js_abort_subscription *abort_subscription;
+    JSValue abort_signal;
 };
 
 typedef struct js_request_table {

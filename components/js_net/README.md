@@ -67,7 +67,7 @@ try {
 
 | Method | Result |
 | --- | --- |
-| `conn.read(maxBytes, {timeoutMs?}?)` | `Promise<Uint8Array \| null>` |
+| `conn.read(maxBytes, {timeoutMs?, signal?}?)` | `Promise<Uint8Array \| null>` |
 | `conn.write(data, {timeoutMs?}?)` | `Promise<number>` |
 | `conn.closeWrite({timeoutMs?}?)` | `Promise<void>` |
 | `conn.close()` / `listener.close()` | `Promise<void>` |
@@ -136,3 +136,8 @@ mbedTLS 上下文另外占用原生堆；关闭及建连失败都会释放。UDP
 ESP-IDF mbedTLS / bundle 验证代码、POSIX 回环 TCP/TLS 和 pthread 模拟
 FreeRTOS；需要本地 ESP-IDF 源码（通过 `IDF_PATH` 指定）、CMake 和 Python
 `cryptography`。可通过 `SANITIZE=address,undefined` 启用内存检查。
+
+`conn.read()` 支持 `signal: controller.signal`。调用 `controller.abort()`
+立即以 signal.reason 拒绝本次读取，默认错误为 AbortError（code: ABORTED）。
+连接不关闭，原生资源保留至 worker 确认；新读取在此之前可能暂时 BUSY。
+完整约定见[异步读取取消](../../man/js/abort.md)。

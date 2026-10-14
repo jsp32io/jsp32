@@ -6,6 +6,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "js_runtime_internal.h"
+#include "js_abort.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "js_runtime";
@@ -242,7 +243,8 @@ static void runtime_task(void *arg)
     }
     JS_SetContextOpaque(runtime->ctx, runtime);
 
-    if (js_console_init(runtime) != ESP_OK ||
+    if (js_abort_init(runtime->ctx) < 0 ||
+        js_console_init(runtime) != ESP_OK ||
         js_listener_init(runtime) != ESP_OK ||
         js_timer_init(runtime) != ESP_OK ||
         js_event_init(runtime) != ESP_OK ||

@@ -57,6 +57,8 @@ type I2COperationOptions = {
   timeoutMs?: number;
 };
 
+type I2CReadOptions = I2COperationOptions & {signal?: AbortSignal};
+
 type I2CScanOptions = {
   from?: number;
   to?: number;
@@ -102,11 +104,11 @@ interface I2CDevice {
   readonly closed: boolean;
 
   write(data: I2CData, options?: I2COperationOptions): Promise<number>;
-  read(length: number, options?: I2COperationOptions): Promise<Uint8Array>;
+  read(length: number, options?: I2CReadOptions): Promise<Uint8Array>;
   writeRead(
     data: I2CData,
     readLength: number,
-    options?: I2COperationOptions,
+    options?: I2CReadOptions,
   ): Promise<Uint8Array>;
   close(): Promise<void>;
 }
@@ -289,3 +291,8 @@ try {
 `message` 用于日志，程序分支应使用 `code`。`operation` 表示失败的 API，
 `busId` 表示 controller，设备相关错误还包含 `address`。ESP-IDF 将 bus 忙和
 硬件传输逾期统一返回为 timeout，API 不尝试猜测无法稳定区分的原因。
+
+`read` 和 `writeRead` 的 options 支持 `signal`。取消时立即以
+`signal.reason` reject（默认 AbortError，code: ABORTED）；未开始的事务
+跳过，已开始的硬件事务安全结束后丢弃结果。设备和总线保持打开，原生
+请求仍计入背压直到 worker 确认。详见[异步读取取消](abort.md)。

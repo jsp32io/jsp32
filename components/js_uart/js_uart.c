@@ -16,6 +16,7 @@
 #include "js_event.h"
 #include "js_runtime.h"
 #include "js_request.h"
+#include "js_abort.h"
 #include "quickjs.h"
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
@@ -64,6 +65,7 @@ typedef struct {
     size_t size;
     uint32_t timeout_ms;
     int64_t deadline_us;
+    js_cancel_t *cancel;
 } uart_command_t;
 
 typedef struct {
@@ -73,6 +75,7 @@ typedef struct {
     uint8_t *data;
     size_t size;
     esp_err_t status;
+    js_cancel_t *cancel;
 } uart_completion_t;
 
 typedef js_request_t uart_request_t;
@@ -88,6 +91,7 @@ typedef struct {
     SemaphoreHandle_t stopped;
     TaskHandle_t task;
     js_request_table_t requests;
+    size_t native_pending;
     uint64_t manually_reserved_pin_mask;
     uint32_t generation;
     int tx_pin;
@@ -274,7 +278,7 @@ static bool parse_read_options(JSContext *ctx, JSValueConst options,
     for (uint32_t i = 0; i < count; ++i) {
         const char *name = JS_AtomToCString(ctx, properties[i].atom);
         if (!name) { valid = false; break; }
-        if (strcmp(name, "timeoutMs") != 0) {
+        if (strcmp(name, "timeoutMs") != 0 && strcmp(name, "signal") != 0) {
             JS_ThrowTypeError(ctx, "unknown read option: %s", name);
             valid = false;
         }
@@ -615,10 +619,12 @@ static uart_completion_t execute_read(uart_port_state_t *state,
         .type = command->type,
         .data = command->data,
         .status = ESP_OK,
+        .cancel = command->cancel,
     };
     command->data = NULL;
     int64_t deadline = command->deadline_us;
     for (;;) {
+        if (js_cancelled(command->cancel)) { result.status = ESP_ERR_INVALID_STATE; break; }
         TickType_t wait = poll_ticks();
         if (command->timeout_ms > 0) {
             int64_t remaining = deadline - esp_timer_get_time();
@@ -679,11 +685,13 @@ static uart_completion_t execute_read_frame(uart_port_state_t *state,
         .type = command->type,
         .data = command->data,
         .status = ESP_OK,
+        .cancel = command->cancel,
     };
     command->data = NULL;
     int64_t deadline = command->deadline_us;
     int64_t last_data_event_us = 0;
     while (!state_is_closing(state)) {
+        if (js_cancelled(command->cancel)) { result.status = ESP_ERR_INVALID_STATE; break; }
         if (deadline && esp_timer_get_time() >= deadline) {
             result.status = ESP_ERR_TIMEOUT;
             break;
@@ -772,7 +780,8 @@ static uart_completion_t execute_read_frame(uart_port_state_t *state,
         }
     }
     if (state_is_closing(state)) result.status = ESP_ERR_INVALID_STATE;
-    if ((result.status != ESP_OK && result.status != ESP_ERR_TIMEOUT) || result.size != 0) {
+    if ((!js_cancelled(command->cancel) && result.status != ESP_OK &&
+         result.status != ESP_ERR_TIMEOUT) || result.size != 0) {
         /* A partial/oversized frame has no trustworthy next boundary. */
         uart_flush_input(state->id);
         xQueueReset(state->uart_events);
@@ -923,8 +932,10 @@ static void uart_event_handler(js_runtime_t *runtime,
     if (!state->completions) return;
     uart_completion_t completion;
     while (xQueueReceive(state->completions, &completion, 0) == pdTRUE) {
+        --state->native_pending;
         complete_request(state, &completion);
         free(completion.data);
+        js_cancel_release(completion.cancel);
     }
 }
 
@@ -951,11 +962,13 @@ static void close_port(uart_port_state_t *state, bool reject_promises)
     while (state->commands &&
            xQueueReceive(state->commands, &command, 0) == pdTRUE) {
         free(command.data);
+        js_cancel_release(command.cancel);
     }
     uart_completion_t completion;
     while (state->completions &&
            xQueueReceive(state->completions, &completion, 0) == pdTRUE) {
         free(completion.data);
+        js_cancel_release(completion.cancel);
     }
 
     uart_driver_delete(state->id);
@@ -975,6 +988,7 @@ static void close_port(uart_port_state_t *state, bool reject_promises)
     state->frame = (uart_frame_config_t) {0};
     state->event_bytes_remaining = 0;
     state->requests.count = 0;
+    state->native_pending = 0;
     state->open = false;
     portENTER_CRITICAL(&state->lock);
     state->closing = false;
@@ -1051,13 +1065,42 @@ static bool decode_handle(JSContext *ctx, JSValueConst *func_data,
 
 static JSValue make_promise_request(JSContext *ctx,
                                     uart_port_state_t *state,
-                                    uart_command_t *command)
+                                    uart_command_t *command, JSValueConst options)
 {
-    (void)ctx;
+    JSValue signal = js_abort_get_signal(ctx, options);
+    if (JS_IsException(signal)) return signal;
+    if (js_abort_aborted(ctx, signal)) {
+        JSValue reason = js_abort_reason(ctx, signal);
+        JSValue promise = js_request_promise(ctx, true, reason);
+        JS_FreeValue(ctx, reason); JS_FreeValue(ctx, signal);
+        free(command->data); command->data = NULL;
+        return promise;
+    }
+    if (state->native_pending >= CONFIG_JS_UART_MAX_PENDING) {
+        JSValue error = make_error(ctx, "UART operation queue full");
+        JSValue promise = JS_IsException(error) ? JS_EXCEPTION : js_request_promise(ctx, true, error);
+        JS_FreeValue(ctx, error); JS_FreeValue(ctx, signal);
+        free(command->data); command->data = NULL;
+        return promise;
+    }
+    js_cancel_t *token = JS_IsUndefined(signal) ? NULL : js_cancel_new();
+    if (!JS_IsUndefined(signal) && !token) {
+        JS_FreeValue(ctx, signal); return JS_ThrowOutOfMemory(ctx);
+    }
     JSValue promise = js_request_create(&state->requests, state->generation,
-                                        NULL, NULL, NULL, &command->id);
-    if (JS_IsException(promise)) return promise;
+                                        token, js_cancel_release, js_cancel_abort, &command->id);
+    if (JS_IsException(promise)) { js_cancel_release(token); JS_FreeValue(ctx, signal); return promise; }
     command->generation = state->generation;
+    if (!js_abort_attach(&state->requests, command->id, command->generation, signal)) {
+        JSValue error = JS_GetException(ctx);
+        js_request_reject(&state->requests, command->id, command->generation, error);
+        JS_FreeValue(ctx, error); JS_FreeValue(ctx, signal);
+        free(command->data); command->data = NULL;
+        return promise;
+    }
+    JS_FreeValue(ctx, signal);
+    command->cancel = token;
+    js_cancel_retain(token);
     if (command->type != UART_OPERATION_WRITE && command->timeout_ms > 0) {
         command->deadline_us = esp_timer_get_time() + (int64_t)command->timeout_ms * 1000;
     }
@@ -1066,6 +1109,9 @@ static JSValue make_promise_request(JSContext *ctx,
         if (request) reject_request(state, request, "UART operation queue full");
         free(command->data);
         command->data = NULL;
+        js_cancel_release(token);
+    } else {
+        ++state->native_pending;
     }
     return promise;
 }
@@ -1153,7 +1199,7 @@ static JSValue js_port_write(JSContext *ctx, JSValueConst this_value,
         .data = data,
         .size = size,
     };
-    if (state->requests.count >= CONFIG_JS_UART_MAX_PENDING) {
+    if (state->native_pending >= CONFIG_JS_UART_MAX_PENDING) {
         free(data);
         JSValue error = make_error(ctx, "UART operation queue full");
         if (JS_IsException(error)) return error;
@@ -1161,7 +1207,7 @@ static JSValue js_port_write(JSContext *ctx, JSValueConst this_value,
         JS_FreeValue(ctx, error);
         return promise;
     }
-    JSValue promise = make_promise_request(ctx, state, &command);
+    JSValue promise = make_promise_request(ctx, state, &command, JS_UNDEFINED);
     if (JS_IsException(promise)) free(data);
     return promise;
 }
@@ -1196,15 +1242,7 @@ static JSValue js_port_read(JSContext *ctx, JSValueConst this_value,
         .size = (size_t)max_bytes,
         .timeout_ms = (uint32_t)timeout_ms,
     };
-    if (state->requests.count >= CONFIG_JS_UART_MAX_PENDING) {
-        free(data);
-        JSValue error = make_error(ctx, "UART operation queue full");
-        if (JS_IsException(error)) return error;
-        JSValue promise = js_request_promise(ctx, true, error);
-        JS_FreeValue(ctx, error);
-        return promise;
-    }
-    JSValue promise = make_promise_request(ctx, state, &command);
+    JSValue promise = make_promise_request(ctx, state, &command, argc > 1 ? argv[1] : JS_UNDEFINED);
     if (JS_IsException(promise)) free(data);
     return promise;
 }
@@ -1232,15 +1270,7 @@ static JSValue js_port_read_frame(JSContext *ctx, JSValueConst this_value,
         .size = state->frame.max_bytes,
         .timeout_ms = (uint32_t)timeout_ms,
     };
-    if (state->requests.count >= CONFIG_JS_UART_MAX_PENDING) {
-        free(data);
-        JSValue error = make_error(ctx, "UART operation queue full");
-        if (JS_IsException(error)) return error;
-        JSValue promise = js_request_promise(ctx, true, error);
-        JS_FreeValue(ctx, error);
-        return promise;
-    }
-    JSValue promise = make_promise_request(ctx, state, &command);
+    JSValue promise = make_promise_request(ctx, state, &command, argc > 0 ? argv[0] : JS_UNDEFINED);
     if (JS_IsException(promise)) free(data);
     return promise;
 }

@@ -474,6 +474,7 @@ static void worker_task(void *opaque)
         int maximum = -1;
         bool immediate = false;
         for (socket_request_t *request = engine->pending; request; request = request->next) {
+            if (js_cancelled(request->cancel)) { immediate = true; continue; }
             if (!slot_valid(engine, request)) continue;
             if (!request->started) begin_request(engine, request);
             int fd = engine->slots[request->slot].fd;
@@ -505,7 +506,10 @@ static void worker_task(void *opaque)
         while (*link) {
             socket_request_t *request = *link;
             bool done = request->error != NULL;
-            if (!slot_valid(engine, request)) {
+            if (js_cancelled(request->cancel)) {
+                fail(request, "ABORTED", 0);
+                done = true;
+            } else if (!slot_valid(engine, request)) {
                 fail(request, "CLOSED", 0);
                 done = true;
             } else if (!done && request->deadline_us &&

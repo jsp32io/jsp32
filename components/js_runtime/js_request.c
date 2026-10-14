@@ -1,4 +1,5 @@
 #include "js_request.h"
+#include "js_abort.h"
 
 #include <stdlib.h>
 
@@ -49,7 +50,8 @@ JSValue js_request_create(js_request_table_t *table, uint32_t generation,
     } while (id_in_use(table, table->next_id));
     *request = (js_request_t){.id = table->next_id, .generation = generation,
         .opaque = opaque, .resolve = functions[0], .reject = functions[1],
-        .cancel = cancel, .dispose = dispose, .next = table->head};
+        .cancel = cancel, .dispose = dispose, .next = table->head,
+        .abort_signal = JS_UNDEFINED};
     table->head = request;
     ++table->count;
     *out_id = request->id;
@@ -75,6 +77,7 @@ static bool complete(js_request_table_t *table, uint32_t id, uint32_t generation
     js_request_t *request = *link;
     *link = request->next;
     --table->count;
+    js_abort_detach(request, table->ctx);
     if (cancelled && request->cancel) request->cancel(id, request->opaque);
     settle(table->ctx, rejected ? request->reject : request->resolve, value);
     JS_FreeValue(table->ctx, request->resolve);
