@@ -66,9 +66,13 @@ write 完成前底层可以使用传入的数组。应用创建会话后应由�
 | 流接口 | 行为 |
 | --- | --- |
 | `stream.id` / `stream.closed` | uint32 流 ID / 是否在本地关闭 |
-| `await stream.read(maxBytes = 32768)` | 返回当前可读的最多 maxBytes 个字节；对端 FIN 后先读完缓存，再返回空数组 |
+| `await stream.read(maxBytes = 32768, options?)` | 返回当前可读的最多 maxBytes 个字节；对端 FIN 后先读完缓存，再返回空数组 |
 | `await stream.write(bytes)` | 写入 Uint8Array，按 maxFrameSize 分帧，返回完整写入的字节数 |
 | `await stream.close()` | 丢弃该流接收缓存并发送 FIN，重复调用返回同一 Promise |
+
+`read` 的 options 为 `{timeoutMs?: number}`，取值为整数 0..60000，
+默认 0 表示无限等待。有限超时从调用时计算，超时 reject，错误带
+`code: "TIMEOUT"` 和 `operation: "read"`；流仍可继续读取。
 
 流是字节流，read 的边界与 write 的边界无关。每个流只允许一个待完成的
 read，重复读取报 `BUSY`；并发 write 按调用顺序执行，调用时复制输入数据。

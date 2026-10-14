@@ -233,7 +233,13 @@ export function createSlave({port, unitId = 1, map, registers: image = globalThi
     stopping = false;
     try {
       while (!stopping) {
-        const frame = await port.readFrame(readTimeoutMs);
+        let frame;
+        try {
+          frame = await port.readFrame({timeoutMs: readTimeoutMs});
+        } catch (error) {
+          if (error.code === 'TIMEOUT') continue;
+          throw error;
+        }
         if (stopping) break;
         const answer = handleRequest(frame);
         if (answer !== null) await port.write(answer);

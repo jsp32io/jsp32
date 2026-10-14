@@ -205,8 +205,9 @@ API 不内建 `readRegister` / `writeRegister`，因为寄存器地址宽度、�
 ## 超时、队列和执行顺序
 
 I/O 操作的 `timeoutMs` 默认为 `1000`，取值范围为 `0-60000`。超时从
-操作真正开始执行时计算，不包含在 bus FIFO 中的等待时间；`0` 表示
-不等待，不表示永不超时。
+读取（read/writeRead）的期限从调用时计算，包含 bus FIFO 排队时间；
+write/probe/scan 的超时从执行时计算，scan 按每个地址计算。`0` 表示
+无限等待软件完成；硬件超时和 NACK 仍会结束传输。
 
 每个 bus 使用独立原生 worker 和有界 FIFO。同一 bus 的全部 device 共享
 队列，调用顺序就是线上执行顺序。worker 不调用 QuickJS，完成结果通过

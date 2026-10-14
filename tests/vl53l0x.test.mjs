@@ -95,9 +95,62 @@ test('continuous mode does not trigger single shots and can return to single mod
 
 test('refuses conflicting XSHUT GPIO and invalid configuration before I/O', async () => {
   assert.throws(() => new VL53L0X({xshut: 5}), RangeError);
-  assert.throws(() => new VL53L0X({timeoutMs: 0}), RangeError);
+  assert.throws(() => new VL53L0X({timeoutMs: -1}), RangeError);
   globalThis.gpio = {list: () => [{pin: 7, available: true, configured: true}]};
   await assert.rejects(new VL53L0X().init(), /XSHUT GPIO/);
+});
+
+test('per-read timeout rejects, resets the override, and permits another measurement', async () => {
+  const f = fixture();
+  await f.sensor.init();
+  const original = f.sensor.device.writeRead;
+  const timeouts = [];
+  f.sensor.device.writeRead = async (data, length, options) => {
+    timeouts.push(options.timeoutMs);
+    const bytes = await original(data, length);
+    if (data[0] === 0x13) bytes[0] = 0;
+    return bytes;
+  };
+  await assert.rejects(f.sensor.read({timeoutMs: 5}), {code: 'TIMEOUT', operation: 'read'});
+  assert.ok(timeouts.every(value => value > 0 && value <= 5));
+  assert.equal(f.sensor.timeoutMs, 40);
+  f.sensor.device.writeRead = original;
+  assert.equal(await f.sensor.readRangeMillimeters({timeoutMs: 100}), 321);
+  await f.sensor.close();
+});
+
+test('zero read timeout waits for readiness and queued finite reads can expire', async () => {
+  const f = fixture();
+  await f.sensor.init();
+  const original = f.sensor.device.writeRead;
+  let release;
+  const ready = new Promise(resolve => { release = resolve; });
+  f.sensor.device.writeRead = async (data, length, options) => {
+    assert.equal(options.timeoutMs, 0);
+    if (data[0] === 0x13) await ready;
+    return original(data, length);
+  };
+  const unlimited = f.sensor.read({timeoutMs: 0});
+  const expired = assert.rejects(f.sensor.read({timeoutMs: 5}), {code: 'TIMEOUT', operation: 'read'});
+  await new Promise(resolve => setTimeout(resolve, 15));
+  release();
+  assert.equal((await unlimited).distanceMm, 321);
+  await expired;
+  f.sensor.device.writeRead = original;
+  assert.equal(await f.sensor.readRangeMillimeters(), 321);
+  await f.sensor.close();
+});
+
+test('read options reject malformed values before any I/O', async () => {
+  const f = fixture();
+  for (const options of [5, null, [], {extra: 1}, {timeoutMs: '5'}]) {
+    assert.throws(() => f.sensor.read(options), TypeError);
+  }
+  for (const timeoutMs of [-1, 0.5, NaN, Infinity, 60001]) {
+    assert.throws(() => f.sensor.read({timeoutMs}), RangeError);
+  }
+  assert.doesNotThrow(() => new VL53L0X({timeoutMs: 0}));
+  assert.equal(f.writes.length, 0);
 });
 
 function addressBus({occupied = [], failChange = false} = {}) {
@@ -186,8 +239,11 @@ test('rejects address changes while continuous ranging', async () => {
   assert.deepEqual(f.writes, []);
 });
 
-const mainSource = await readFile(new URL('../cli/main.js', import.meta.url), 'utf8');
-const bootSource = mainSource.slice(mainSource.indexOf('// 三颗共用'));
+// The device-specific boot script is an optional, untracked local file.
+const mainSource = await readFile(new URL('../cli/main.js', import.meta.url), 'utf8')
+  .catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+const bootSource = mainSource?.slice(mainSource.indexOf('// 三颗共用'));
+const bootOptions = {skip: mainSource === null ? 'local cli/main.js is absent' : false};
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 async function bootFixture({allEnabled = false, failSecond = false} = {}) {
   const levels = new Map(), assigned = new Map(), log = [];
@@ -221,7 +277,7 @@ async function bootFixture({allEnabled = false, failSecond = false} = {}) {
   return {context, log, bus, opens, levels, assigned};
 }
 
-test('current boot assigns GPIO7 and GPIO15; future pin remains untouched', async () => {
+test('current boot assigns GPIO7 and GPIO15; future pin remains untouched', bootOptions, async () => {
   const f = await bootFixture();
   assert.deepEqual([...f.levels.keys()], [7, 15]);
   assert.equal(f.context.tof.address, 0x30);
@@ -229,7 +285,7 @@ test('current boot assigns GPIO7 and GPIO15; future pin remains untouched', asyn
   assert.equal(f.opens, 1);
 });
 
-test('three-sensor boot holds all down before sequential address assignment on one bus', async () => {
+test('three-sensor boot holds all down before sequential address assignment on one bus', bootOptions, async () => {
   const f = await bootFixture({allEnabled: true});
   assert.deepEqual(f.log.slice(0, 3), [['setup', 7], ['setup', 15], ['setup', 16]]);
   assert.deepEqual([...f.assigned], [[7, 0x30], [15, 0x31], [16, 0x32]]);
@@ -237,7 +293,7 @@ test('three-sensor boot holds all down before sequential address assignment on o
   assert.equal(f.opens, 1);
 });
 
-test('partial boot failure holds all sensors down and closes shared bus', async () => {
+test('partial boot failure holds all sensors down and closes shared bus', bootOptions, async () => {
   const f = await bootFixture({allEnabled: true, failSecond: true});
   assert.deepEqual([...f.levels.values()], [0, 0, 0]);
   assert.equal(f.bus.closed, true);

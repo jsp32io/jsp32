@@ -9,8 +9,8 @@
 const port = uart.open(1, {tx: 17, rx: 18, baudRate: 115200});
 try {
   console.log(await port.write("AT\r\n"));
-  const data = await port.read(256, 1000);
-  console.log(data); // Uint8Array，超时无数据时为空
+  const data = await port.read(256, {timeoutMs: 1000});
+  console.log(data); // Uint8Array，等待超时则 reject TIMEOUT
 } finally {
   port.close();
 }
@@ -48,13 +48,16 @@ bit 发送结束后拉低。TTL、RS-232、RS-485 共用同一套字节 API。
 | 方法 | 返回值 | 说明 |
 | --- | --- | --- |
 | `port.write(data)` | `Promise<number>` | 硬件发送完成后返回字节数 |
-| `port.read(maxBytes, timeoutMs)` | `Promise<Uint8Array>` | 有数据时返回最多 maxBytes 字节 |
-| `port.readFrame(timeoutMs)` | `Promise<Uint8Array>` | 返回一帧，仅用于分帧模式 |
+| `port.read(maxBytes, options?)` | `Promise<Uint8Array>` | 有数据时返回最多 maxBytes 字节 |
+| `port.readFrame(options?)` | `Promise<Uint8Array>` | 返回一帧，仅用于分帧模式 |
 | `port.close()` | `undefined` | 关闭端口并释放资源 |
 
 write 接受 UTF-8 字符串、Uint8Array 或 ArrayBuffer。
-read 不保证读满 maxBytes；等到至少一个字节即可返回，超时无数据返回空数组。
-timeoutMs 为 0 时只读取已有缓冲数据。
+read 不保证读满 maxBytes；等到至少一个字节即可返回。
+options 为 `{timeoutMs?: number}`，取值为整数 0..60000，默认 0 表示无限等待。
+有限超时从调用时计算，包含排队时间；超时 reject Error，带有
+`code: "TIMEOUT"` 和 `operation: "read"` 或 `"readFrame"`。
+超时后端口仍可使用。旧的数字超时参数不接受。
 
 同一端口所有读写按调用顺序执行，前面的长时间 read 会延迟后续 write。
 双向通信应使用有限读取超时。参数校验错误同步抛出；驱动错误和操作队列满
@@ -70,7 +73,7 @@ const port = uart.open(1, {
   framing: {type: "idle", gapChars: 3.5, maxBytes: 256},
   halfDuplex: {directionPin: 16},
 });
-const frame = await port.readFrame(1000);
+const frame = await port.readFrame({timeoutMs: 1000});
 ```
 
 | type | 配置 | 完帧条件 |
@@ -82,8 +85,8 @@ const frame = await port.readFrame(1000);
 
 所有模式支持 maxBytes，默认 256，不能超过固件最大传输长度。
 超长帧使 Promise 拒绝，并清空 RX 缓冲以重新同步。
-readFrame 的 timeoutMs 是整个等待期限，不是分帧规则：期限内没有任何输入
-时返回空数组，收到部分帧但未完成时拒绝。
+readFrame 的 timeoutMs 是整个等待期限，不是分帧规则；
+无输入或收到部分帧但未完成时都 reject TIMEOUT。部分帧会清空以重新同步。
 
 idle 模式按完整 UART 字符周期计时，gapChars 向上取整，例如 3.5 实际为 4。
 该规则检测帧结束，不单独校验协议规定的最大帧内字节间隔。

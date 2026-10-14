@@ -167,13 +167,13 @@ export class VL53L0X {
   constructor({bus = null, busId = 1, sda = 5, scl = 6, xshut = 7,
     address = 0x29, clockHz = 100000, pullups = "external",
     timeoutMs = 1000, timingBudgetUs = 33000, io2v8 = true} = {}) {
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000) {
-      throw new RangeError("timeoutMs must be 1..60000");
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 60000) {
+      throw new RangeError("timeoutMs must be 0..60000");
     }
     if (!Number.isInteger(timingBudgetUs) || timingBudgetUs < 20000 || timingBudgetUs > 1000000) {
       throw new RangeError("timingBudgetUs must be 20000..1000000");
     }
-    if (timeoutMs <= timingBudgetUs / 1000) {
+    if (timeoutMs !== 0 && timeoutMs <= timingBudgetUs / 1000) {
       throw new RangeError("timeoutMs must exceed the measurement timing budget");
     }
     if (bus !== null && (typeof bus.device !== "function" || typeof bus.probe !== "function" || bus.closed)) {
@@ -215,7 +215,7 @@ export class VL53L0X {
   }
 
   async _read(reg, length = 1) {
-    return this.device.writeRead(new Uint8Array([reg]), length, {timeoutMs: this.timeoutMs});
+    return this.device.writeRead(new Uint8Array([reg]), length, {timeoutMs: this._ioTimeout()});
   }
   async _u8(reg) { return (await this._read(reg))[0]; }
   async _u16(reg) {
@@ -223,18 +223,20 @@ export class VL53L0X {
     return bytes[0] * 256 + bytes[1];
   }
   async _write(reg, ...bytes) {
-    await this.device.write(new Uint8Array([reg, ...bytes]), {timeoutMs: this.timeoutMs});
+    await this.device.write(new Uint8Array([reg, ...bytes]), {timeoutMs: this._ioTimeout()});
   }
   async _pairs(pairs) {
     for (const [reg, value] of pairs) await this._write(reg, value);
   }
   async _wait(reg, mask, nonzero, stage) {
-    const started = Date.now();
+    const started = this._now();
     while (true) {
       if (!!((await this._u8(reg)) & mask) === nonzero) return;
-      if (Date.now() - started >= this.timeoutMs) {
+      const timeoutMs = this._readTimeoutMs ?? this.timeoutMs;
+      if (timeoutMs > 0 && this._now() - started >= timeoutMs) {
         const error = new Error("VL53L0X timeout: " + stage);
         error.code = "TIMEOUT";
+        error.operation = this._readTimeoutMs !== undefined ? "read" : stage;
         throw error;
       }
       await sleep(2);
@@ -242,6 +244,24 @@ export class VL53L0X {
   }
   _ready() {
     if (!this.initialized) throw new Error("Call await sensor.init() first");
+  }
+
+  _ioTimeout() {
+    if (this._readDeadline) {
+      const remaining = this._readDeadline - this._now();
+      if (remaining <= 0) {
+        const error = new Error("VL53L0X read timeout");
+        error.code = "TIMEOUT";
+        error.operation = "read";
+        throw error;
+      }
+      return Math.max(1, Math.ceil(remaining));
+    }
+    return this._readTimeoutMs ?? this.timeoutMs;
+  }
+
+  _now() {
+    return typeof globalThis.monotonicMs === "function" ? globalThis.monotonicMs() : Date.now();
   }
 
   init() {
@@ -376,26 +396,46 @@ export class VL53L0X {
   }
 
   // rawStatus is the hardware status (11 = range complete), not ST's API enum.
-  read() {
+  read(options = {}) {
+    if (!options || typeof options !== "object" || Array.isArray(options)) {
+      throw new TypeError("read options must be an object");
+    }
+    for (const key of Object.keys(options)) {
+      if (key !== "timeoutMs") throw new TypeError("unknown read option: " + key);
+    }
+    const timeoutMs = options.timeoutMs === undefined ? this.timeoutMs : options.timeoutMs;
+    if (typeof timeoutMs !== "number") throw new TypeError("timeoutMs must be a number");
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 60000) {
+      throw new RangeError("timeoutMs must be 0..60000");
+    }
+    const deadline = timeoutMs > 0 ? this._now() + timeoutMs : 0;
     return this._run(async () => {
-      this._ready();
-      if (!this.continuous) {
-        await this._restoreStopVariable();
+      this._readTimeoutMs = timeoutMs;
+      this._readDeadline = deadline;
+      try {
+        this._ready();
+        if (!this.continuous) {
+          await this._restoreStopVariable();
+          await this._write(0x0b, 1);
+          await this._write(0, 1);
+          await this._wait(0, 1, false, "measurement start");
+        }
+        await this._wait(0x13, 7, true, "measurement ready");
+        const result = await this._read(0x14, 12);
         await this._write(0x0b, 1);
-        await this._write(0, 1);
-        await this._wait(0, 1, false, "measurement start");
+        this._ioTimeout();
+        const rawStatus = (result[0] & 0x78) >>> 3;
+        const distanceMm = result[10] * 256 + result[11];
+        return {distanceMm, rawStatus, valid: rawStatus === 11 && distanceMm < 8190};
+      } finally {
+        this._readTimeoutMs = undefined;
+        this._readDeadline = 0;
       }
-      await this._wait(0x13, 7, true, "measurement ready");
-      const result = await this._read(0x14, 12);
-      await this._write(0x0b, 1);
-      const rawStatus = (result[0] & 0x78) >>> 3;
-      const distanceMm = result[10] * 256 + result[11];
-      return {distanceMm, rawStatus, valid: rawStatus === 11 && distanceMm < 8190};
     });
   }
 
-  async readRangeMillimeters() {
-    const result = await this.read();
+  async readRangeMillimeters(options = {}) {
+    const result = await this.read(options);
     if (!result.valid) {
       const error = new Error("VL53L0X invalid range (raw status " + result.rawStatus + ")");
       error.code = "INVALID_RANGE";
@@ -409,7 +449,8 @@ export class VL53L0X {
     return this._run(async () => {
       this._ready();
       if (!Number.isInteger(periodMs) || periodMs < 0 || periodMs > 60000 ||
-          (periodMs !== 0 && (periodMs < this.timingBudgetUs / 1000 || periodMs >= this.timeoutMs))) {
+          (periodMs !== 0 && (periodMs < this.timingBudgetUs / 1000 ||
+            (this.timeoutMs !== 0 && periodMs >= this.timeoutMs)))) {
         throw new RangeError("periodMs must be 0, or >= timing budget and < timeoutMs (max 60000)");
       }
       if (this.continuous) throw new Error("Stop continuous ranging before restarting it");

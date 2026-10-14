@@ -21,7 +21,20 @@ function integer(value, name, max = 2147483647) {
 // Waiters always wake successfully and recheck their condition, including errors.
 class Signal {
   constructor() { this.waiters = []; }
-  wait() { return new Promise(resolve => this.waiters.push(resolve)); }
+  wait(timeoutMs = 0) {
+    return new Promise((resolve, reject) => {
+      let timer;
+      const wake = () => { clearTimeout(timer); resolve(); };
+      this.waiters.push(wake);
+      if (timeoutMs > 0) timer = setTimeout(() => {
+        const index = this.waiters.indexOf(wake);
+        if (index >= 0) this.waiters.splice(index, 1);
+        const failure = error('TIMEOUT', 'stream read timeout');
+        failure.operation = 'read';
+        reject(failure);
+      }, timeoutMs);
+    });
+  }
   wake() {
     const waiters = this.waiters;
     this.waiters = [];
@@ -43,15 +56,33 @@ class Stream {
     this._writeTail = Promise.resolve();
   }
 
-  async read(maxBytes = 32768) {
+  async read(maxBytes = 32768, options = {}) {
     integer(maxBytes, 'maxBytes');
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      throw new TypeError('read options must be an object');
+    }
+    for (const key of Object.keys(options)) {
+      if (key !== 'timeoutMs') throw new TypeError(`unknown read option: ${key}`);
+    }
+    const timeoutMs = options.timeoutMs === undefined ? 0 : options.timeoutMs;
+    if (typeof timeoutMs !== 'number') throw new TypeError('timeoutMs must be a number');
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 60000) {
+      throw new RangeError('timeoutMs must be 0..60000');
+    }
+    const deadline = timeoutMs > 0 ? now() + timeoutMs : 0;
     if (this._reading) throw error('BUSY', 'stream read already pending');
     this._reading = true;
     try {
       while (!this._chunks.length) {
         if (this.session.closed) throw this.session.error;
         if (this.closed || this._fin) return EMPTY;
-        await this._signal.wait();
+        const remaining = deadline ? deadline - now() : 0;
+        if (deadline && remaining <= 0) {
+          const failure = error('TIMEOUT', 'stream read timeout');
+          failure.operation = 'read';
+          throw failure;
+        }
+        await this._signal.wait(remaining);
       }
       const chunk = this._chunks[0];
       const size = Math.min(maxBytes, chunk.length);

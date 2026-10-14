@@ -7,6 +7,39 @@ const {Session, client, server} = await import(`data:text/javascript,${encodeURI
 const options = {keepAliveDisabled: true};
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
+test('read timeout removes its waiter and leaves the stream usable', async t => {
+  const {session, input} = harness();
+  t.after(() => session.close());
+  const stream = await session.openStream();
+  await assert.rejects(stream.read(16, {timeoutMs: 5}), {code: 'TIMEOUT', operation: 'read'});
+  assert.equal(stream._signal.waiters.length, 0);
+  assert.equal(stream.closed, false);
+  const pending = stream.read(16, {timeoutMs: 0});
+  await new Promise(resolve => setTimeout(resolve, 10));
+  input.feed(frame(2, stream.id, [42]));
+  assert.deepEqual([...await pending], [42]);
+  assert.equal(stream._signal.waiters.length, 0);
+});
+
+test('read validates options and clears timeout when data or close arrives', async t => {
+  const {session, input} = harness();
+  t.after(() => session.close());
+  const stream = await session.openStream();
+  for (const options of [5, null, [], {extra: 1}, {timeoutMs: '5'}]) {
+    await assert.rejects(stream.read(16, options), TypeError);
+  }
+  for (const timeoutMs of [-1, 0.5, NaN, Infinity, 60001]) {
+    await assert.rejects(stream.read(16, {timeoutMs}), RangeError);
+  }
+  const pending = stream.read(16, {timeoutMs: 1000});
+  input.feed(frame(2, stream.id, [1, 2]));
+  assert.deepEqual([...await pending], [1, 2]);
+  const ending = stream.read(16, {timeoutMs: 1000});
+  await stream.close();
+  assert.equal((await ending).length, 0);
+  assert.equal(stream._signal.waiters.length, 0);
+});
+
 function frame(command, id, data = [], version = 1) {
   const bytes = new Uint8Array(8 + data.length);
   const view = new DataView(bytes.buffer);

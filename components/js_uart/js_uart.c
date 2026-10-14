@@ -63,6 +63,7 @@ typedef struct {
     uint8_t *data;
     size_t size;
     uint32_t timeout_ms;
+    int64_t deadline_us;
 } uart_command_t;
 
 typedef struct {
@@ -253,6 +254,41 @@ static bool get_optional_integer(JSContext *ctx, JSValueConst options,
     *present = true;
     *value = parsed;
     return true;
+}
+
+static bool parse_read_options(JSContext *ctx, JSValueConst options,
+                               int32_t *timeout_ms)
+{
+    *timeout_ms = 0;
+    if (JS_IsUndefined(options)) return true;
+    if (!JS_IsObject(options) || JS_IsArray(ctx, options) ||
+        JS_IsFunction(ctx, options)) {
+        JS_ThrowTypeError(ctx, "read options must be an object");
+        return false;
+    }
+    JSPropertyEnum *properties = NULL;
+    uint32_t count = 0;
+    if (JS_GetOwnPropertyNames(ctx, &properties, &count, options,
+                               JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0) return false;
+    bool valid = true;
+    for (uint32_t i = 0; i < count; ++i) {
+        const char *name = JS_AtomToCString(ctx, properties[i].atom);
+        if (!name) { valid = false; break; }
+        if (strcmp(name, "timeoutMs") != 0) {
+            JS_ThrowTypeError(ctx, "unknown read option: %s", name);
+            valid = false;
+        }
+        JS_FreeCString(ctx, name);
+        if (!valid) break;
+    }
+    JS_FreePropertyEnum(ctx, properties, count);
+    if (!valid) return false;
+    JSValue value = JS_GetPropertyStr(ctx, options, "timeoutMs");
+    if (JS_IsException(value)) return false;
+    valid = JS_IsUndefined(value) || get_integer(ctx, value, "timeoutMs", 0,
+                                                UART_READ_TIMEOUT_MAX_MS, timeout_ms);
+    JS_FreeValue(ctx, value);
+    return valid;
 }
 
 static bool parse_framing(JSContext *ctx, JSValueConst options,
@@ -581,13 +617,12 @@ static uart_completion_t execute_read(uart_port_state_t *state,
         .status = ESP_OK,
     };
     command->data = NULL;
-    int64_t deadline = esp_timer_get_time() +
-                       (int64_t)command->timeout_ms * 1000;
+    int64_t deadline = command->deadline_us;
     for (;;) {
-        TickType_t wait = 0;
+        TickType_t wait = poll_ticks();
         if (command->timeout_ms > 0) {
             int64_t remaining = deadline - esp_timer_get_time();
-            if (remaining <= 0) break;
+            if (remaining <= 0) { result.status = ESP_ERR_TIMEOUT; break; }
             uint32_t wait_ms = (uint32_t)((remaining + 999) / 1000);
             if (wait_ms > UART_WORKER_POLL_MS) wait_ms = UART_WORKER_POLL_MS;
             wait = pdMS_TO_TICKS(wait_ms);
@@ -603,7 +638,7 @@ static uart_completion_t execute_read(uart_port_state_t *state,
             result.size = (size_t)count;
             break;
         }
-        if (command->timeout_ms == 0 || state_is_closing(state)) break;
+        if (state_is_closing(state)) break;
     }
     if (state_is_closing(state)) result.status = ESP_ERR_INVALID_STATE;
     return result;
@@ -646,9 +681,13 @@ static uart_completion_t execute_read_frame(uart_port_state_t *state,
         .status = ESP_OK,
     };
     command->data = NULL;
-    int64_t deadline = esp_timer_get_time() + (int64_t)command->timeout_ms * 1000;
+    int64_t deadline = command->deadline_us;
     int64_t last_data_event_us = 0;
     while (!state_is_closing(state)) {
+        if (deadline && esp_timer_get_time() >= deadline) {
+            result.status = ESP_ERR_TIMEOUT;
+            break;
+        }
         if (state->event_bytes_remaining > 0) {
             uint8_t byte = 0;
             int n = uart_read_bytes(state->id, &byte, 1, 0);
@@ -675,8 +714,11 @@ static uart_completion_t execute_read_frame(uart_port_state_t *state,
             continue;
         }
         int64_t remaining = deadline - esp_timer_get_time();
-        if (command->timeout_ms > 0 && remaining <= 0) break;
-        TickType_t wait = 0;
+        if (command->timeout_ms > 0 && remaining <= 0) {
+            result.status = ESP_ERR_TIMEOUT;
+            break;
+        }
+        TickType_t wait = poll_ticks();
         if (command->timeout_ms > 0) {
             uint32_t wait_ms = (uint32_t)((remaining + 999) / 1000);
             if (wait_ms > UART_WORKER_POLL_MS) wait_ms = UART_WORKER_POLL_MS;
@@ -698,7 +740,6 @@ static uart_completion_t execute_read_frame(uart_port_state_t *state,
                     return result;
                 }
             }
-            if (command->timeout_ms == 0) break;
             continue;
         }
         if (event.type == UART_FIFO_OVF || event.type == UART_BUFFER_FULL ||
@@ -731,7 +772,7 @@ static uart_completion_t execute_read_frame(uart_port_state_t *state,
         }
     }
     if (state_is_closing(state)) result.status = ESP_ERR_INVALID_STATE;
-    if (result.status != ESP_OK || result.size != 0) {
+    if ((result.status != ESP_OK && result.status != ESP_ERR_TIMEOUT) || result.size != 0) {
         /* A partial/oversized frame has no trustworthy next boundary. */
         uart_flush_input(state->id);
         xQueueReset(state->uart_events);
@@ -837,6 +878,21 @@ static void complete_request(uart_port_state_t *state,
                                            completion->generation);
     if (!request) return;
     if (completion->status != ESP_OK) {
+        if (completion->status == ESP_ERR_TIMEOUT) {
+            JSContext *ctx = state->module->ctx;
+            JSValue error = make_error(ctx, "UART read timeout");
+            if (!JS_IsException(error) &&
+                (JS_SetPropertyStr(ctx, error, "code", JS_NewString(ctx, "TIMEOUT")) < 0 ||
+                 JS_SetPropertyStr(ctx, error, "operation", JS_NewString(ctx,
+                     completion->type == UART_OPERATION_READ_FRAME ? "readFrame" : "read")) < 0)) {
+                JS_FreeValue(ctx, error);
+                error = JS_EXCEPTION;
+            }
+            if (JS_IsException(error)) error = JS_GetException(ctx);
+            js_request_reject(&state->requests, request->id, request->generation, error);
+            JS_FreeValue(ctx, error);
+            return;
+        }
         reject_request(state, request,
                        completion->status == ESP_ERR_INVALID_STATE
                            ? "UART closed"
@@ -1002,6 +1058,9 @@ static JSValue make_promise_request(JSContext *ctx,
                                         NULL, NULL, NULL, &command->id);
     if (JS_IsException(promise)) return promise;
     command->generation = state->generation;
+    if (command->type != UART_OPERATION_WRITE && command->timeout_ms > 0) {
+        command->deadline_us = esp_timer_get_time() + (int64_t)command->timeout_ms * 1000;
+    }
     if (xQueueSend(state->commands, command, 0) != pdTRUE) {
         uart_request_t *request = find_request(state, command->id, command->generation);
         if (request) reject_request(state, request, "UART operation queue full");
@@ -1126,9 +1185,7 @@ static JSValue js_port_read(JSContext *ctx, JSValueConst this_value,
     if (argc < 1 ||
         !get_integer(ctx, argv[0], "maxBytes", 1,
                      CONFIG_JS_UART_MAX_TRANSFER_SIZE, &max_bytes) ||
-        (argc > 1 &&
-         !get_integer(ctx, argv[1], "timeoutMs", 0,
-                      UART_READ_TIMEOUT_MAX_MS, &timeout_ms))) {
+        !parse_read_options(ctx, argc > 1 ? argv[1] : JS_UNDEFINED, &timeout_ms)) {
         return JS_EXCEPTION;
     }
     uint8_t *data = malloc((size_t)max_bytes);
@@ -1164,9 +1221,7 @@ static JSValue js_port_read_frame(JSContext *ctx, JSValueConst this_value,
         return JS_ThrowTypeError(ctx, "framing must be configured at uart.open()");
     }
     int32_t timeout_ms = 0;
-    if (argc > 0 &&
-        !get_integer(ctx, argv[0], "timeoutMs", 0,
-                     UART_READ_TIMEOUT_MAX_MS, &timeout_ms)) {
+    if (!parse_read_options(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, &timeout_ms)) {
         return JS_EXCEPTION;
     }
     uint8_t *data = malloc(state->frame.max_bytes);

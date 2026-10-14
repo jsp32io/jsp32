@@ -9,8 +9,8 @@ console.log(uart.list());
 const port = uart.open(1, {tx: 17, rx: 18, baudRate: 115200});
 await port.write("AT\r\n");
 
-const data = await port.read(256, 1000);
-if (data.length === 0) console.log("timeout");
+const data = await port.read(256, {timeoutMs: 1000});
+// A timeout rejects with error.code === "TIMEOUT".
 
 port.close();
 ```
@@ -48,10 +48,10 @@ RS-485 use the same `readFrame()` and `write()` calls.
 
 ## Framed input
 
-Configure one frame rule when opening the port. `port.readFrame(timeoutMs)`
-then resolves to one complete `Uint8Array`. A timeout before any input returns
-an empty array; a partial frame at the deadline rejects the Promise. The
-`timeoutMs` argument is the overall wait deadline, not a framing rule.
+Configure one frame rule when opening the port. `port.readFrame(options?)`
+then resolves to one complete `Uint8Array`. Any wait timeout rejects with
+`code: "TIMEOUT"`, including when no input has arrived. The
+`options.timeoutMs` field is the overall wait deadline, not a framing rule.
 
 ```js
 const port = uart.open(1, {
@@ -59,7 +59,7 @@ const port = uart.open(1, {
   framing: {type: "idle", gapChars: 3.5, maxBytes: 256},
   halfDuplex: {directionPin: 16},
 });
-const request = await port.readFrame(1000);
+const request = await port.readFrame({timeoutMs: 1000});
 ```
 
 | Type | Rule fields | Completion |
@@ -83,9 +83,13 @@ validate that rule at the protocol layer or use stricter timing support.
 returns a Promise for the transmitted byte count. The Promise resolves only
 after the hardware has finished transmitting.
 
-`port.read(maxBytes, timeoutMs)` returns a Promise for a `Uint8Array`. It
-resolves as soon as at least one byte is available, up to `maxBytes`. A zero
-timeout only consumes buffered data; a timeout resolves to an empty array.
+`port.read(maxBytes, options?)` returns a Promise for a `Uint8Array`. It
+resolves as soon as at least one byte is available, up to `maxBytes`.
+`options` is `{timeoutMs?: number}` (integer 0..60000); omitted or zero means
+unlimited waiting. A finite timeout includes queue time and rejects an Error
+with `code: "TIMEOUT"` and `operation: "read"` or `"readFrame"`.
+Timeout leaves the port usable; partial frames are discarded to resynchronize.
+Numeric timeout arguments are rejected.
 All reads and writes on one port execute in call order. A long pending read
 therefore delays later writes; use a finite read timeout when the same port is
 used bidirectionally.

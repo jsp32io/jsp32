@@ -15,6 +15,8 @@ The default hardware configuration is ESP32-S3 N16R8: 16 MB Flash and 8 MB Octal
 - **Device logic in JavaScript**: QuickJS supports ES modules, Promises, timers,
   and event listeners. Scripts live in the device filesystem, so updating your
   application logic does not require rebuilding the firmware.
+  Asynchronous reads accept `{timeoutMs}` options: zero means unlimited waiting,
+  and wait timeouts reject with `code: "TIMEOUT"`.
 - **Plugins with configurable settings**: Plugins start in dependency order,
   declare settings, and register resource cleanup callbacks. View their status
   and edit configuration through the web interface or desktop console.

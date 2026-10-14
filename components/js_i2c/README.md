@@ -75,6 +75,11 @@ await device.close();
 同一 bus 的全部操作共享有界 FIFO，线上顺序与 JavaScript 调用顺序一致。
 I/O 在 bus worker 中执行，QuickJS EventLoop 不会被阻塞。
 
+`timeoutMs` 为整数 0..60000，read/writeRead 默认 1000 ms，0 表示无限
+等待软件完成。读取期限包含排队时间；等待超时 reject `I2CError`，
+`code` 为 `TIMEOUT`。硬件超时和 NACK 仍会结束传输。
+write/probe/scan 使用同样的零值含义，其超时从执行时计算，scan 按每个地址计算。
+
 ## Errors and lifetime
 
 参数类型和范围错误同步抛出 `TypeError` / `RangeError`。资源冲突和

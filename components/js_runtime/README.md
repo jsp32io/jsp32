@@ -55,7 +55,7 @@ counter.close();
 uart.list();
 const port = uart.open(1, {tx: 17, rx: 18, baudRate: 115200});
 await port.write("AT\r\n");
-const data = await port.read(256, 1000);
+const data = await port.read(256, {timeoutMs: 1000});
 port.close();
 
 const bus = i2c.open(0, {sda: 8, scl: 9});
@@ -200,7 +200,7 @@ settler、释放保存的 JS 回调和 metadata。
 可通过 `js_request_set_deadline()` 设置单调时钟的微秒截止时间，零表示无
 公共截止时间。已注册的表由 Runtime 自动检查，到期以 `TimeoutError` reject
 并调用取消钩子；最近截止时间参与 Queue 阻塞等待，不增加空闲轮询。
-I²C、UART 和 TCP/TLS 保留原有的原生超时规则及错误类型，不额外设置公共
+I²C、UART 和 TCP/TLS 由各模块处理原生超时及错误，不额外设置公共
 截止时间。`js_request_expire()` 和 `js_request_next_deadline()` 也可供独立
 调度器使用；单次过期处理有数量上限，防止取消钩子不断创建过期请求。
 

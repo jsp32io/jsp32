@@ -7,6 +7,7 @@
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "esp_private/esp_gpio_reserve.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -62,6 +63,7 @@ typedef struct {
     uint16_t scan_from;
     uint16_t scan_to;
     uint32_t timeout_ms;
+    int64_t deadline_us;
     i2c_operation_t type;
     i2c_master_dev_handle_t device;
     uint8_t *write_data;
@@ -531,17 +533,28 @@ static i2c_completion_t execute_command(i2c_bus_state_t *state,
         .type = command->type,
         .status = ESP_OK,
     };
+    /* ESP-IDF uses -1 for an unlimited software wait. Hardware timeout and
+       NACK errors still terminate a transfer. */
+    int timeout_ms = command->timeout_ms ? (int)command->timeout_ms : -1;
+    if (command->deadline_us) {
+        int64_t remaining = command->deadline_us - esp_timer_get_time();
+        if (remaining <= 0) {
+            result.status = ESP_ERR_TIMEOUT;
+            goto done;
+        }
+        timeout_ms = (int)((remaining + 999) / 1000);
+    }
     switch (command->type) {
         case I2C_OP_WRITE:
             result.status = i2c_master_transmit(command->device,
                 command->write_data, command->write_size,
-                (int)command->timeout_ms);
+                timeout_ms);
             result.size = result.status == ESP_OK ? command->write_size : 0;
             break;
         case I2C_OP_READ:
             result.status = i2c_master_receive(command->device,
                 command->read_data, command->read_size,
-                (int)command->timeout_ms);
+                timeout_ms);
             result.data = command->read_data;
             result.size = result.status == ESP_OK ? command->read_size : 0;
             command->read_data = NULL;
@@ -550,20 +563,20 @@ static i2c_completion_t execute_command(i2c_bus_state_t *state,
             result.status = i2c_master_transmit_receive(command->device,
                 command->write_data, command->write_size,
                 command->read_data, command->read_size,
-                (int)command->timeout_ms);
+                timeout_ms);
             result.data = command->read_data;
             result.size = result.status == ESP_OK ? command->read_size : 0;
             command->read_data = NULL;
             break;
         case I2C_OP_PROBE:
             result.status = i2c_master_probe(state->handle, command->address,
-                                              (int)command->timeout_ms);
+                                              timeout_ms);
             break;
         case I2C_OP_SCAN:
             for (uint16_t address = command->scan_from;
                  address <= command->scan_to; ++address) {
                 esp_err_t err = i2c_master_probe(state->handle, address,
-                                                 (int)command->timeout_ms);
+                                                 timeout_ms);
                 if (err == ESP_OK) command->read_data[result.size++] = address;
                 else if (err != ESP_ERR_NOT_FOUND) {
                     result.status = err;
@@ -586,6 +599,7 @@ static i2c_completion_t execute_command(i2c_bus_state_t *state,
             result.status = ESP_ERR_INVALID_STATE;
             break;
     }
+done:
     free(command->write_data);
     free(command->read_data);
     command->write_data = NULL;
@@ -924,6 +938,10 @@ static JSValue enqueue_command(JSContext *ctx, i2c_bus_state_t *state,
         return promise;
     }
     command->bus_generation = state->generation;
+    if ((command->type == I2C_OP_READ || command->type == I2C_OP_WRITE_READ) &&
+        command->timeout_ms > 0) {
+        command->deadline_us = esp_timer_get_time() + (int64_t)command->timeout_ms * 1000;
+    }
     if (xQueueSend(state->commands, command, 0) != pdTRUE) {
         i2c_request_t *request = find_request(state, command->id,
                                                state->generation);

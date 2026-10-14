@@ -167,9 +167,11 @@ test('serve reads frames, replies, and stops after the pending read', async () =
   let reads = 0;
   let slave;
   const port = {
-    readFrame: async () => {
+    readFrame: async options => {
+      assert.deepEqual(options, {timeoutMs: 100});
       reads++;
-      if (reads === 1) return request;
+      if (reads === 1) throw Object.assign(new Error('timeout'), {code: 'TIMEOUT'});
+      if (reads === 2) return request;
       slave.stop();
       return new Uint8Array();
     },
@@ -182,5 +184,5 @@ test('serve reads frames, replies, and stops after the pending read', async () =
   }});
   await slave.serve();
   assert.deepEqual(payload(writes[0]), [1, 3, 2, 0, 42]);
-  assert.equal(reads, 2);
+  assert.equal(reads, 3);
 });
