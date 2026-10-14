@@ -8,6 +8,22 @@ const {Session, client, server} = await import(`data:text/javascript,${encodeURI
 const options = {keepAliveDisabled: true};
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
+test('write accepts omitted or empty options and rejects unsupported options before sending', async t => {
+  const {session, sent} = harness();
+  t.after(() => session.close());
+  const stream = await session.openStream();
+  for (const options of [undefined, {}]) {
+    assert.equal(await stream.write(Uint8Array.of(42), options), 1);
+  }
+  const before = sent.length;
+  for (const options of [null, [], 1, () => {}, {timeoutMs: 100},
+                         {signal: new AbortController().signal}, {extra: true}]) {
+    assert.throws(() => stream.write(Uint8Array.of(1), options), TypeError);
+  }
+  assert.equal(sent.length, before);
+  assert.equal(await stream.write(Uint8Array.of(7)), 1);
+});
+
 test('abort cancels only one read and removes its signal and stream waiters', async t => {
   const {session, input} = harness();
   t.after(() => session.close());

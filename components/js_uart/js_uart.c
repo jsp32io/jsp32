@@ -260,6 +260,28 @@ static bool get_optional_integer(JSContext *ctx, JSValueConst options,
     return true;
 }
 
+static bool validate_write_options(JSContext *ctx, JSValueConst options)
+{
+    if (JS_IsUndefined(options)) return true;
+    if (!JS_IsObject(options) || JS_IsArray(ctx, options) || JS_IsFunction(ctx, options)) {
+        JS_ThrowTypeError(ctx, "write options must be an object");
+        return false;
+    }
+    JSPropertyEnum *properties = NULL;
+    uint32_t count = 0;
+    if (JS_GetOwnPropertyNames(ctx, &properties, &count, options,
+                               JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0) return false;
+    if (count) {
+        const char *name = JS_AtomToCString(ctx, properties[0].atom);
+        if (name) {
+            JS_ThrowTypeError(ctx, "unsupported write option: %s", name);
+            JS_FreeCString(ctx, name);
+        }
+    }
+    JS_FreePropertyEnum(ctx, properties, count);
+    return count == 0;
+}
+
 static bool parse_read_options(JSContext *ctx, JSValueConst options,
                                int32_t *timeout_ms)
 {
@@ -1191,6 +1213,7 @@ static JSValue js_port_write(JSContext *ctx, JSValueConst this_value,
         return JS_ThrowTypeError(ctx, "UART TX is not configured");
     }
     if (argc < 1) return JS_ThrowTypeError(ctx, "data is required");
+    if (!validate_write_options(ctx, argc > 1 ? argv[1] : JS_UNDEFINED)) return JS_EXCEPTION;
     uint8_t *data = NULL;
     size_t size = 0;
     if (!copy_write_data(ctx, argv[0], &data, &size)) return JS_EXCEPTION;

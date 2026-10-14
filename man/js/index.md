@@ -81,3 +81,19 @@ JSP32 使用 QuickJS 执行 LittleFS 中的 `/main.js`。本文档按 API 分类
 前面的未完成事务仍按顺序执行。读取超时不会主动关闭端口、连接或流；
 UART 部分帧会丢弃以重新同步。I²C 即使无限等待，硬件超时和 NACK
 仍可使事务结束。传感器无效测量结果与等待超时不同，详见对应手册。
+
+## 异步写入约定
+
+单独写入统一使用 `write(data, options?)`，options 可以省略。
+
+| 接口 | options 支持的字段 | 返回值 |
+| --- | --- | --- |
+| `port.write(data, options?)` | 无；仅接受 undefined 或空对象 | `Promise<number>`，硬件发送完成后的字节数 |
+| `conn.write(data, options?)` | timeoutMs | `Promise<number>`，完整写入字节数 |
+| `device.write(data, options?)` | timeoutMs | `Promise<number>`，写入字节数 |
+| `stream.write(data, options?)` | 无；仅接受 undefined 或空对象 | `Promise<number>`，完整写入字节数 |
+
+UART 和 SMUX 的写入 options 暂不支持字段，传入 timeoutMs、signal 或
+其他字段会抛 TypeError。各模块的数据类型、发送顺序及完成语义见对应手册。
+I²C 的组合事务仍使用 `writeRead(data, readLength, options?)`，支持
+读取 options（timeoutMs、signal），返回 `Promise<Uint8Array>`。

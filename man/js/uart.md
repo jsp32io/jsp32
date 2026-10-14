@@ -47,12 +47,14 @@ bit 发送结束后拉低。TTL、RS-232、RS-485 共用同一套字节 API。
 
 | 方法 | 返回值 | 说明 |
 | --- | --- | --- |
-| `port.write(data)` | `Promise<number>` | 硬件发送完成后返回字节数 |
+| `port.write(data, options?)` | `Promise<number>` | 硬件发送完成后返回字节数 |
 | `port.read(maxBytes, options?)` | `Promise<Uint8Array>` | 有数据时返回最多 maxBytes 字节 |
 | `port.readFrame(options?)` | `Promise<Uint8Array>` | 返回一帧，仅用于分帧模式 |
 | `port.close()` | `undefined` | 关闭端口并释放资源 |
 
 write 接受 UTF-8 字符串、Uint8Array 或 ArrayBuffer。
+写入 options 可省略、传 undefined 或空对象 `{}`；暂不支持任何字段，
+包括 timeoutMs 和 signal，传入时抛 TypeError。写入仍在硬件发送完成后 resolve。
 read 不保证读满 maxBytes；等到至少一个字节即可返回。
 options 为 `{timeoutMs?: number, signal?: AbortSignal}`。
 timeoutMs 为整数 0..60000，默认 0 表示无限等待。

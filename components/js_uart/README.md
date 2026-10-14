@@ -79,9 +79,11 @@ validate that rule at the protocol layer or use stricter timing support.
 
 ## Asynchronous I/O
 
-`port.write(data)` accepts a UTF-8 string, `Uint8Array`, or `ArrayBuffer` and
+`port.write(data, options?)` accepts a UTF-8 string, `Uint8Array`, or `ArrayBuffer` and
 returns a Promise for the transmitted byte count. The Promise resolves only
-after the hardware has finished transmitting.
+after the hardware has finished transmitting. Write options may be omitted,
+`undefined`, or an empty object `{}`. Fields including `timeoutMs` and `signal`
+are currently unsupported and throw TypeError.
 
 `port.read(maxBytes, options?)` returns a Promise for a `Uint8Array`. It
 resolves as soon as at least one byte is available, up to `maxBytes`.

@@ -110,19 +110,25 @@ class Stream {
     }
   }
 
-  write(bytes) {
-    if (!(bytes instanceof Uint8Array)) throw new TypeError('bytes must be Uint8Array');
+  write(data, options = {}) {
+    if (!(data instanceof Uint8Array)) throw new TypeError('data must be Uint8Array');
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      throw new TypeError('write options must be an object');
+    }
+    for (const key of Object.keys(options)) {
+      throw new TypeError(`unsupported write option: ${key}`);
+    }
     // Own the input while queued so caller buffer reuse cannot corrupt frames.
-    const data = bytes.slice();
+    const snapshot = data.slice();
     const result = this._writeTail.then(async () => {
       this.session._check();
       if (this.closed) throw error('CLOSED', 'stream is closed');
       let written = 0;
       try {
-        while (written < data.length) {
+        while (written < snapshot.length) {
           if (this.closed) throw error('CLOSED', 'stream is closed');
-          const size = Math.min(this.session.options.maxFrameSize, data.length - written);
-          await this.session._send(PSH, this.id, data.subarray(written, written + size));
+          const size = Math.min(this.session.options.maxFrameSize, snapshot.length - written);
+          await this.session._send(PSH, this.id, snapshot.subarray(written, written + size));
           written += size;
         }
         return written;
