@@ -1,5 +1,7 @@
 # JSP32
 
+> **A little JS. A world of hardware.**
+
 English | [简体中文](README_zh.md)
 
 JSP32 is JavaScript-programmable device firmware for the ESP32-S3. Use scripts to

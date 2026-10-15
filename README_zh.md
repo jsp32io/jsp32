@@ -1,5 +1,7 @@
 # JSP32
 
+> **几行 JS，掌控硬件。**
+
 [English](README.md) | 简体中文
 
 JSP32 是面向 ESP32-S3 的 JavaScript 可编程设备固件。你可以用脚本读取传感器、

@@ -1,7 +1,7 @@
 {
   "name": "@jsp32/jsp32",
   "version": "0.1.0",
-  "description": "JSP32 command-line tools for serial flashing and device management",
+  "description": "A little JS. A world of hardware.",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
