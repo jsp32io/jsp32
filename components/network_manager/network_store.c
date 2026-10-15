@@ -7,9 +7,63 @@
 #include <string.h>
 #include "esp_mac.h"
 #include "nvs.h"
+#include "lwip/inet.h"
 
 #define CONFIG_NAMESPACE "jsp32_config"
 #define MODE_KEY "wifi_mode"
+
+static bool parse_ipv4(const char *text, esp_ip4_addr_t *address)
+{
+    uint32_t value = 0;
+    for (unsigned part = 0; part < 4; ++part) {
+        unsigned octet = 0, digits = 0;
+        while (*text >= '0' && *text <= '9') {
+            octet = octet * 10 + (unsigned)(*text++ - '0');
+            if (++digits > 3 || octet > 255) return false;
+        }
+        if (!digits || (part < 3 ? *text++ != '.' : *text != '\0')) return false;
+        value = (value << 8) | octet;
+    }
+    address->addr = htonl(value);
+    return true;
+}
+
+esp_err_t network_store_load_ap_ip(esp_netif_ip_info_t *ip_info)
+{
+    if (!ip_info) return ESP_ERR_INVALID_ARG;
+    *ip_info = (esp_netif_ip_info_t){
+        .ip = {.addr = inet_addr(NETWORK_AP_DEFAULT_IP)},
+        .gw = {.addr = inet_addr(NETWORK_AP_DEFAULT_IP)},
+        .netmask = {.addr = inet_addr(NETWORK_AP_DEFAULT_NETMASK)},
+    };
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(CONFIG_NAMESPACE, NVS_READONLY, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;
+    if (err != ESP_OK) return err;
+    char ip[16] = NETWORK_AP_DEFAULT_IP, mask[16] = NETWORK_AP_DEFAULT_NETMASK;
+    size_t size = sizeof(ip);
+    err = nvs_get_str(handle, "ap_ip", ip, &size);
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    if (err == ESP_OK) {
+        size = sizeof(mask);
+        err = nvs_get_str(handle, "ap_netmask", mask, &size);
+        if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    }
+    nvs_close(handle);
+    if (err != ESP_OK) return err;
+    esp_netif_ip_info_t configured = {0};
+    if (!parse_ipv4(ip, &configured.ip) || !parse_ipv4(mask, &configured.netmask))
+        return ESP_ERR_INVALID_ARG;
+    uint32_t address = ntohl(configured.ip.addr);
+    uint32_t hosts = ~ntohl(configured.netmask.addr);
+    unsigned first = address >> 24;
+    if (!first || first == 127 || first >= 224 || hosts < 3 || hosts == UINT32_MAX ||
+        (hosts & (hosts + 1)) || !(address & hosts) || (address & hosts) == hosts)
+        return ESP_ERR_INVALID_ARG;
+    configured.gw = configured.ip;
+    *ip_info = configured;
+    return ESP_OK;
+}
 
 bool network_credentials_valid(const char *ssid, const char *password)
 {

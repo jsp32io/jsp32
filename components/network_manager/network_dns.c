@@ -29,7 +29,7 @@ static size_t dns_question_end(const uint8_t *packet, size_t length)
     return 0;
 }
 
-static size_t build_dns_response(uint8_t *packet, size_t length)
+static size_t build_dns_response(uint8_t *packet, size_t length, uint32_t ap_ip)
 {
     if (length < 12 || packet[4] != 0 || packet[5] != 1) {
         return 0;
@@ -60,8 +60,9 @@ static size_t build_dns_response(uint8_t *packet, size_t length)
         0x00, 0x01,       /* IN */
         0x00, 0x00, 0x00, 0x1e, /* TTL 30 seconds */
         0x00, 0x04,
-        192, 168, 4, 1,
+        0, 0, 0, 0,
     };
+    memcpy(answer + sizeof(answer) - 4, &ap_ip, 4);
     memcpy(packet + question_end, answer, sizeof(answer));
     return question_end + sizeof(answer);
 }
@@ -82,7 +83,7 @@ static void dns_task(void *argument)
             }
             continue;
         }
-        size_t response_length = build_dns_response(packet, (size_t)received);
+        size_t response_length = build_dns_response(packet, (size_t)received, manager->dns_ip);
         if (response_length) {
             sendto(manager->dns_socket, packet, response_length, 0,
                    (struct sockaddr *)&client_address, client_length);
@@ -101,6 +102,11 @@ esp_err_t network_dns_start(network_manager_t *manager)
     if (manager->dns_task) {
         return ESP_OK;
     }
+    esp_netif_ip_info_t ip_info;
+    esp_err_t err = esp_netif_get_ip_info(manager->ap_netif, &ip_info);
+    if (err != ESP_OK) return err;
+    if (!ip_info.ip.addr) return ESP_ERR_INVALID_STATE;
+    manager->dns_ip = ip_info.ip.addr;
     if (!manager->dns_stopped) {
         manager->dns_stopped = xSemaphoreCreateBinary();
         if (!manager->dns_stopped) {
@@ -114,7 +120,7 @@ esp_err_t network_dns_start(network_manager_t *manager)
     struct sockaddr_in address = {
         .sin_family = AF_INET,
         .sin_port = htons(DNS_PORT),
-        .sin_addr.s_addr = htonl(0xc0a80401u),
+        .sin_addr.s_addr = manager->dns_ip,
     };
     manager->dns_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (manager->dns_socket < 0) return ESP_FAIL;

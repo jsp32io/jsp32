@@ -41,9 +41,14 @@ The default hardware configuration is ESP32-S3 N16R8: 16 MB Flash and 8 MB Octal
 ## Using a device
 
 A device without a saved network mode starts a `JSP32-XXXX` hotspot. Connect to it
-and open `http://192.168.4.1/` in your browser. The network page supports hotspot
+and open `http://192.168.7.1/` in your browser. The network page supports hotspot
 mode (AP), connection to an external Wi-Fi network (STA), or both (APSTA).
 Network settings are saved on the device and restored on reboot.
+The AP defaults to `192.168.7.1` with netmask `255.255.255.0`. Set string keys
+`ap_ip` and `ap_netmask` in NVS namespace `jsp32_config` to override them; changes
+take effect after reboot. Missing keys use their defaults; an invalid address or
+mask makes both fall back to the defaults. The AP gateway is its own address,
+and captive DNS and redirects follow the active AP address.
 
 | Interface | Use it for |
 | --- | --- |

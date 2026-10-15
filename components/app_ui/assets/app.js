@@ -109,7 +109,7 @@ function renderStatus(value) {
   const list=$('#network-status');list.replaceChildren();
   row(list,'实际运行模式',modeLabels[value.mode] || value.mode);
   row(list,'已保存模式',value.modeSaved ? modeLabels[value.savedMode] : '尚未设置 · 默认匿名 AP');
-  if(value.softAp?.enabled)row(list,'设备热点',`${value.softAp.ssid || '—'} · ${value.softAp.open?'匿名':'密码保护'} · ${value.softAp.ip || '192.168.4.1'}`);
+  if(value.softAp?.enabled)row(list,'设备热点',`${value.softAp.ssid || '—'} · ${value.softAp.open?'匿名':'密码保护'} · ${value.softAp.ip || '192.168.7.1'}`);
   if(value.station?.connectionEnabled)row(list,'STA',value.station.connected ? `${value.station.ssid} · ${value.station.ip}` : '未连接');
   if(value.fallback)message('#network-message','STA 连接或配置保存失败，已恢复 AP。已保存的配置保持不变，请检查设置后重新应用。',true);
   else if(value.state === 'error')message('#network-message',`网络连接失败（${value.error || value.errorCode}），热点仍可用于管理。`,true);
@@ -163,9 +163,11 @@ $('#network-form').onsubmit=async event=>{
     else if(password){if(!((encoder.encode(password).length>=8 && encoder.encode(password).length<=63) || /^[a-fA-F0-9]{64}$/.test(password))){message('#network-message','Wi-Fi 密码格式无效。',true);return;}body.station.password=password;}
     else if(ssid !== config.station.ssid || !config.station.passwordSet){message('#network-message','请输入 Wi-Fi 密码；开放网络请选择“无需密码”。',true);return;}
   }
+  const apHost=status?.softAp?.ip || '192.168.7.1';
+  const apUrl=`http://${apHost}${window.location.port ? ':'+window.location.port : ''}/`;
   let instructions='更改已提交，正在应用。页面可能暂时断开。';
-  if(mode === 'sta')instructions+='\n连接成功后，通过局域网中的设备 STA 地址访问。失败时，请重新连接原设备热点并打开 http://192.168.4.1/。';
-  else instructions+=`\n若连接中断，请连接热点“${body.ap.ssid}”，打开 http://192.168.4.1/。应用失败时恢复原热点“${config.ap.ssid}”。`;
+  if(mode === 'sta')instructions+=`\n连接成功后，通过局域网中的设备 STA 地址访问。失败时，请重新连接原设备热点并打开 ${apUrl}。`;
+  else instructions+=`\n若连接中断，请连接热点“${body.ap.ssid}”，打开 ${apUrl}。应用失败时恢复原热点“${config.ap.ssid}”。`;
   if(!window.confirm(`应用 ${modeLabels[mode]}？\n${mode === 'sta'?'设备热点将关闭。':'修改热点配置可能断开当前连接。'}\n重启后继续使用此模式。`))return;
   applying={id:null};updateFields();message('#network-message',instructions);
   try {

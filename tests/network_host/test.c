@@ -3,7 +3,17 @@
 #include <stdlib.h>
 #include "../../components/network_manager/network_manager.c"
 #include "../../components/network_manager/network_store.c"
+static int host_getsockname(int, struct sockaddr *, socklen_t *);
+#define getsockname host_getsockname
 #include "../../components/network_manager/network_http.c"
+#undef getsockname
+#define TAG dns_host_tag
+#define network_dns_start host_dns_start
+#define network_dns_stop host_dns_stop
+#include "../../components/network_manager/network_dns.c"
+#undef network_dns_start
+#undef network_dns_stop
+#undef TAG
 
 static network_settings_t disk_record;
 static bool disk_strings[4];
@@ -17,6 +27,10 @@ static esp_err_t scan_start_error, scan_read_error;
 static int64_t now_us;
 static wifi_config_t radio_ap, radio_sta;
 static int netif_ap = 1, netif_sta = 2;
+static esp_netif_ip_info_t ap_ip_info;
+static bool dhcp_stopped, ap_ip_present, ap_mask_present;
+static char stored_ap_ip[64], stored_ap_mask[64];
+static uint32_t request_local_ip;
 static int8_t radio_power = 52;
 static uint32_t station_ip = 0x6401a8c0;
 static network_command_t queued[32];
@@ -61,13 +75,16 @@ esp_err_t esp_wifi_scan_get_ap_records(uint16_t *count,wifi_ap_record_t *records
 esp_err_t esp_wifi_clear_ap_list(void) {return ESP_OK;}
 esp_err_t esp_read_mac(uint8_t *mac,int type) {memset(mac,0,6);mac[4]=0xab;mac[5]=0xcd;return ESP_OK;}
 esp_netif_t *esp_netif_get_handle_from_ifkey(const char *key) {return strcmp(key,"WIFI_STA_DEF")==0?&netif_sta:&netif_ap;}
-esp_err_t esp_netif_get_ip_info(esp_netif_t *netif,esp_netif_ip_info_t *info) {memset(info,0,sizeof(*info));info->ip.addr=netif==&netif_sta?station_ip:0x0104a8c0;return ESP_OK;}
+esp_err_t esp_netif_get_ip_info(esp_netif_t *netif,esp_netif_ip_info_t *info) {if(netif==&netif_ap)*info=ap_ip_info;else{memset(info,0,sizeof(*info));info->ip.addr=station_ip;}return ESP_OK;}
+esp_err_t esp_netif_dhcps_stop(esp_netif_t *netif) {assert(netif==&netif_ap);dhcp_stopped=true;return ESP_OK;}
+esp_err_t esp_netif_set_ip_info(esp_netif_t *netif,const esp_netif_ip_info_t *info) {assert(netif==&netif_ap&&dhcp_stopped);ap_ip_info=*info;return ESP_OK;}
+esp_err_t esp_netif_dhcps_start(esp_netif_t *netif) {assert(netif==&netif_ap&&dhcp_stopped&&ap_ip_info.ip.addr);dhcp_stopped=false;return ESP_OK;}
 esp_err_t esp_netif_get_hostname(esp_netif_t *netif,const char **hostname) {*hostname="jsp32-test";return ESP_OK;}
 esp_err_t network_dns_start(network_manager_t *manager) {return ESP_OK;}
 void network_dns_stop(network_manager_t *manager) {}
 esp_err_t nvs_open(const char *name,int access,nvs_handle_t *handle) {
  *handle=1;assert(strcmp(name,"jsp32_config")==0);
- bool present=disk_present;
+ bool present=disk_present||ap_ip_present||ap_mask_present;
  for(size_t i=0;i<4;++i)present|=disk_strings[i];
  return present||access==NVS_READWRITE?ESP_OK:ESP_ERR_NVS_NOT_FOUND;
 }
@@ -87,9 +104,10 @@ esp_err_t nvs_set_u8(nvs_handle_t handle,const char *key,uint8_t value) {
  assert(strcmp(key,"wifi_mode")==0);disk_record.mode=(network_mode_t)value;disk_present=true;return ESP_OK;
 }
 esp_err_t nvs_get_str(nvs_handle_t handle,const char *key,char *out,size_t *size) {
- int i=string_index(key);const char *value;
- if(disk_strings[i])value=disk_string(i);
- else return ESP_ERR_NVS_NOT_FOUND;
+ const char *value;
+ if(strcmp(key,"ap_ip")==0){if(!ap_ip_present)return ESP_ERR_NVS_NOT_FOUND;value=stored_ap_ip;}
+ else if(strcmp(key,"ap_netmask")==0){if(!ap_mask_present)return ESP_ERR_NVS_NOT_FOUND;value=stored_ap_mask;}
+ else {int i=string_index(key);if(!disk_strings[i])return ESP_ERR_NVS_NOT_FOUND;value=disk_string(i);}
  size_t needed=strlen(value)+1;
  if(!out){*size=needed;return ESP_OK;}
  if(*size<needed){*size=needed;return ESP_ERR_NVS_INVALID_LENGTH;}
@@ -108,13 +126,16 @@ esp_err_t app_http_server_register(app_http_server_t *server,const char *owner,c
 esp_err_t app_http_server_register_info_provider(app_http_server_t *server,const char *owner,app_http_info_provider_fn function,void *context) {provider=function;provider_context=context;return ESP_OK;}
 esp_err_t app_http_server_unregister_owner(app_http_server_t *server,const char *owner) {route_count=0;provider=NULL;provider_context=NULL;return ESP_OK;}
 esp_err_t httpd_resp_set_type(httpd_req_t *request,const char *type) {return ESP_OK;}
-esp_err_t httpd_resp_set_hdr(httpd_req_t *request,const char *name,const char *value) {return ESP_OK;}
+esp_err_t httpd_resp_set_hdr(httpd_req_t *request,const char *name,const char *value) {if(strcmp(name,"Location")==0)strlcpy(request->location,value,sizeof(request->location));return ESP_OK;}
 esp_err_t httpd_resp_set_status(httpd_req_t *request,const char *status) {request->status=atoi(status);return ESP_OK;}
 esp_err_t httpd_resp_sendstr(httpd_req_t *request,const char *text) {strlcpy(request->response,text,sizeof(request->response));return ESP_OK;}
 esp_err_t httpd_resp_send(httpd_req_t *request,const char *text,size_t length) {return ESP_OK;}
 esp_err_t httpd_resp_send_err(httpd_req_t *request,int status,const char *text) {request->status=status;return httpd_resp_sendstr(request,text);}
 int httpd_req_recv(httpd_req_t *request,char *out,size_t capacity) {size_t remaining=request->content_len-request->received;size_t size=remaining<capacity?remaining:capacity;memcpy(out,request->body+request->received,size);request->received+=size;return size;}
 int httpd_req_to_sockfd(httpd_req_t *request) {return -1;}
+static int host_getsockname(int fd,struct sockaddr *address,socklen_t *size) {
+ struct sockaddr_in *local=(struct sockaddr_in *)address;memset(local,0,sizeof(*local));local->sin_family=AF_INET;local->sin_addr.s_addr=request_local_ip;*size=sizeof(*local);return 0;
+}
 
 static network_manager_t make_manager(void) {
  network_manager_t manager={0};manager.status_mutex=(void *)1;manager.queue=(void *)1;manager.task=(void *)1;manager.sta_netif=&netif_sta;manager.ap_netif=&netif_ap;
@@ -126,6 +147,28 @@ static void start_sta(network_manager_t *manager) {network_command_t command={.t
 static void configure(network_manager_t *manager,const network_settings_t *settings) {uint32_t id;assert(network_manager_apply(manager,settings,&id)==ESP_OK);assert(manager->status.pending);drain(manager);now_us+=1000001;handle_timers(manager);}
 
 int main(void) {
+ esp_netif_ip_info_t ap_info;
+ assert(network_store_load_ap_ip(&ap_info)==ESP_OK);
+ assert(ap_info.ip.addr==inet_addr("192.168.7.1")&&ap_info.gw.addr==ap_info.ip.addr);
+ assert(ap_info.netmask.addr==inet_addr("255.255.255.0"));
+ ap_ip_present=ap_mask_present=true;strcpy(stored_ap_ip,"10.23.4.1");strcpy(stored_ap_mask,"255.255.0.0");
+ assert(configure_ap_ip(&netif_ap)==ESP_OK&&!dhcp_stopped);
+ assert(ap_ip_info.ip.addr==inet_addr("10.23.4.1")&&ap_ip_info.gw.addr==ap_ip_info.ip.addr);
+ assert(ap_ip_info.netmask.addr==inet_addr("255.255.0.0"));
+ network_manager_t captive={.status_mutex=(void *)1,.ap_netif=&netif_ap};captive.status.active_mode=NETWORK_MODE_AP;
+ httpd_req_t captive_request={.user_ctx=&captive};request_local_ip=ap_ip_info.ip.addr;
+ assert(redirect_handler(&captive_request)==ESP_OK&&captive_request.status==302);
+ assert(strcmp(captive_request.location,"http://10.23.4.1/")==0);
+ request_local_ip=inet_addr("192.168.4.1");redirect_handler(&captive_request);assert(captive_request.status==404);
+ uint8_t dns[512]={0x12,0x34,1,0,0,1,0,0,0,0,0,0,1,'a',0,0,1,0,1};
+ size_t reply=build_dns_response(dns,19,ap_ip_info.ip.addr);
+ assert(reply==35&&memcmp(dns+reply-4,&ap_ip_info.ip.addr,4)==0);
+ const char *invalid_ip[]={"10.23.0.0","10.23.255.255","127.0.0.1","224.0.0.1","0.1.2.3","10.23.4","10.23.4.256","10.23.4.1junk"};
+ for(size_t i=0;i<sizeof(invalid_ip)/sizeof(*invalid_ip);++i){strcpy(stored_ap_ip,invalid_ip[i]);assert(network_store_load_ap_ip(&ap_info)==ESP_ERR_INVALID_ARG);assert(ap_info.ip.addr==inet_addr("192.168.7.1"));}
+ strcpy(stored_ap_ip,"10.23.4.1");strcpy(stored_ap_mask,"255.0.255.0");assert(network_store_load_ap_ip(&ap_info)==ESP_ERR_INVALID_ARG);
+ strcpy(stored_ap_mask,"255.255.255.255");assert(network_store_load_ap_ip(&ap_info)==ESP_ERR_INVALID_ARG);
+ ap_mask_present=false;assert(network_store_load_ap_ip(&ap_info)==ESP_OK&&ap_info.netmask.addr==inet_addr("255.255.255.0"));
+ ap_ip_present=false;assert(configure_ap_ip(&netif_ap)==ESP_OK&&ap_ip_info.ip.addr==inet_addr("192.168.7.1"));
  network_settings_t settings;bool saved;
  assert(network_store_load(&settings,&saved)==ESP_OK);assert(!saved&&settings.mode==NETWORK_MODE_AP&&!settings.ap_password[0]);assert(strcmp(settings.ap_ssid,"JSP32-ABCD")==0);
  // Credentials without a mode do not override initial anonymous defaults.

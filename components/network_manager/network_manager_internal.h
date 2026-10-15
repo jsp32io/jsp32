@@ -6,7 +6,11 @@
 #include "freertos/task.h"
 #include "network_manager.h"
 #include "esp_wifi.h"
+#include "esp_netif.h"
 #include "sdkconfig.h"
+
+#define NETWORK_AP_DEFAULT_IP "192.168.7.1"
+#define NETWORK_AP_DEFAULT_NETMASK "255.255.255.0"
 
 typedef enum {
     NETWORK_COMMAND_STA_START,
@@ -61,6 +65,7 @@ struct network_manager {
     TaskHandle_t dns_task;
     SemaphoreHandle_t dns_stopped;
     int dns_socket;
+    uint32_t dns_ip;
     volatile bool dns_stop_requested;
     bool wifi_initialized;
     bool wifi_started;
@@ -79,6 +84,7 @@ bool network_settings_valid(const network_settings_t *settings);
 void network_store_defaults(network_settings_t *settings);
 esp_err_t network_store_load(network_settings_t *settings, bool *mode_saved);
 esp_err_t network_store_save(const network_settings_t *settings);
+esp_err_t network_store_load_ap_ip(esp_netif_ip_info_t *ip_info);
 esp_err_t network_manager_post(network_manager_t *manager,
                                const network_command_t *command,
                                TickType_t wait_ticks);

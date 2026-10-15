@@ -39,6 +39,20 @@ static bool connects_station(network_mode_t mode)
     return mode == NETWORK_MODE_STA || mode == NETWORK_MODE_APSTA;
 }
 
+static esp_err_t configure_ap_ip(esp_netif_t *netif)
+{
+    esp_netif_ip_info_t ip_info;
+    esp_err_t err = network_store_load_ap_ip(&ip_info);
+    if (err != ESP_OK)
+        ESP_LOGW(TAG, "AP IP configuration: %s; using %s/24", esp_err_to_name(err), NETWORK_AP_DEFAULT_IP);
+    err = esp_netif_dhcps_stop(netif);
+    if (err != ESP_OK && err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) return err;
+    err = esp_netif_set_ip_info(netif, &ip_info);
+    if (err != ESP_OK) return err;
+    /* Before Wi-Fi starts this restores DHCP's automatic-start state. */
+    return esp_netif_dhcps_start(netif);
+}
+
 static const network_settings_t *working_settings(network_manager_t *manager)
 {
     return manager->testing ? &manager->candidate : &manager->saved;
@@ -555,6 +569,7 @@ esp_err_t network_manager_init(const network_manager_config_t *config, network_m
     manager->sta_netif = esp_netif_create_default_wifi_sta();
     manager->ap_netif = esp_netif_create_default_wifi_ap();
     esp_err_t err = manager->sta_netif && manager->ap_netif ? ESP_OK : ESP_ERR_NO_MEM;
+    if (err == ESP_OK) err = configure_ap_ip(manager->ap_netif);
     if (err == ESP_OK) {
         wifi_init_config_t wifi = WIFI_INIT_CONFIG_DEFAULT();
         wifi.nvs_enable = false;

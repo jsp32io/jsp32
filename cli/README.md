@@ -153,12 +153,27 @@ SSE payload with keys `r`, `a`, and `v`.
 `nvs` supports reading and modifying `user`, `user_*`, and `jsp32_config`
 namespaces. Network settings use independent keys in `jsp32_config`:
 `wifi_mode` (u8: 1=AP, 2=STA, 3=APSTA), `ap_ssid`, `ap_pass`, `wifi_ssid`,
-and `wifi_pass` (strings). `ap_pass` and `wifi_pass` are writable but remain
+and `wifi_pass` (strings). AP addressing uses separate string keys `ap_ip`
+and `ap_netmask` (defaults: `192.168.7.1` and `255.255.255.0`). The gateway equals
+the AP address. Missing address keys use defaults independently of `wifi_mode`;
+invalid addresses or masks fall back to the default address and mask. `ap_pass` and `wifi_pass` are writable but remain
 non-readable through `nvs get`. Use the built-in UI or `/api/v1/network/config`
 for immediate changes with connection testing; direct NVS writes take effect
 on reboot. Removing `wifi_mode` returns to anonymous AP defaults on the next boot.
 `rm`, `batch`, and `clear --yes` also support `jsp32_config`. This requires firmware
 with writable `jsp32_config` support.
+
+For example, configure AP addressing and reboot:
+
+```sh
+./jsp32 nvs set jsp32_config ap_ip string 192.168.7.1
+./jsp32 nvs set jsp32_config ap_netmask string 255.255.255.0
+./jsp32 reboot
+```
+
+AP addresses must be unicast host addresses, and masks must be contiguous
+(`/1` through `/30`); network and broadcast addresses are rejected at boot.
+Captive DNS, redirects, and network-page reconnect hints follow the active AP IP.
 
 `nvs` provides typed access to visible NVS namespaces. Integer widths, strings,
 floating-point values, and blobs are preserved; 64-bit integers are encoded as

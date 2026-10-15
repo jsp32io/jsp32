@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 typedef int esp_err_t;
 #define ESP_OK 0
@@ -18,6 +19,7 @@ typedef int esp_err_t;
 #define ESP_ERR_TIMEOUT 5
 #define ESP_ERR_NVS_NOT_FOUND 6
 #define ESP_ERR_NVS_INVALID_LENGTH 7
+#define ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED 8
 #define CONFIG_NETWORK_AP_PREFIX "JSP32"
 #define CONFIG_NETWORK_AP_MAX_CONNECTIONS 4
 #define CONFIG_NETWORK_CONNECT_TIMEOUT_MS 30000
@@ -29,6 +31,7 @@ typedef int esp_err_t;
 #define CONFIG_APP_HTTP_SERVER_PORT 80
 #define ESP_LOGW(tag,...) ((void)(tag))
 #define ESP_LOGI(tag,...) ((void)(tag))
+#define ESP_LOGE(tag,...) ((void)(tag))
 #define ESP_EVENT_DECLARE_BASE(name) extern int name
 #define ESP_EVENT_DEFINE_BASE(name) int name
 #define WIFI_EVENT 1
@@ -89,7 +92,7 @@ typedef union {
  struct {uint8_t ssid[32],password[64];unsigned scan_method,sort_method;struct {int authmode;} threshold;struct {bool capable;} pmf_cfg;} sta;
  struct {uint8_t ssid[32],password[64];unsigned ssid_len,channel,authmode,max_connection;} ap;
 } wifi_config_t;
-typedef struct {void *user_ctx; const char *uri; int method; size_t content_len; const char *body; size_t received; char response[12000]; int status;} httpd_req_t;
+typedef struct {void *user_ctx; const char *uri; int method; size_t content_len; const char *body; size_t received; char response[12000]; int status; char location[128];} httpd_req_t;
 typedef struct {const char *uri;int method;esp_err_t (*handler)(httpd_req_t *);void *user_ctx;} httpd_uri_t;
 
 size_t strlcpy(char *, const char *, size_t);
@@ -114,6 +117,9 @@ esp_netif_t *esp_netif_create_default_wifi_ap(void);
 void esp_netif_destroy_default_wifi(esp_netif_t *);
 esp_netif_t *esp_netif_get_handle_from_ifkey(const char *);
 esp_err_t esp_netif_get_ip_info(esp_netif_t *,esp_netif_ip_info_t *);
+esp_err_t esp_netif_set_ip_info(esp_netif_t *,const esp_netif_ip_info_t *);
+esp_err_t esp_netif_dhcps_stop(esp_netif_t *);
+esp_err_t esp_netif_dhcps_start(esp_netif_t *);
 esp_err_t esp_netif_get_hostname(esp_netif_t *,const char **);
 esp_err_t esp_wifi_init(const wifi_init_config_t *);
 esp_err_t esp_wifi_deinit(void);

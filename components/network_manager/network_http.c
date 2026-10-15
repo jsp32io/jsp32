@@ -8,7 +8,6 @@
 #include "lwip/sockets.h"
 
 #define NETWORK_OWNER "network"
-#define SOFTAP_IPV4 0xc0a80401u
 
 static const char *mode_name(network_mode_t mode)
 {
@@ -310,28 +309,31 @@ static esp_err_t networks_handler(httpd_req_t *request)
     return send_json(request, root);
 }
 
-static bool is_ap_request(httpd_req_t *request)
+static bool is_ap_request(httpd_req_t *request, esp_netif_ip_info_t *ip_info)
 {
+    network_manager_t *manager = request->user_ctx;
+    if (esp_netif_get_ip_info(manager->ap_netif, ip_info) != ESP_OK) return false;
     struct sockaddr_in local;
     socklen_t size = sizeof(local);
     return getsockname(httpd_req_to_sockfd(request), (struct sockaddr *)&local, &size) == 0 &&
-           local.sin_family == AF_INET && ntohl(local.sin_addr.s_addr) == SOFTAP_IPV4;
+           local.sin_family == AF_INET && local.sin_addr.s_addr == ip_info->ip.addr;
 }
 
 static esp_err_t redirect_handler(httpd_req_t *request)
 {
     network_status_t status;
     network_manager_get_status(request->user_ctx, &status);
-    if (status.active_mode == NETWORK_MODE_STA || !is_ap_request(request))
+    esp_netif_ip_info_t ip_info;
+    if (status.active_mode == NETWORK_MODE_STA || !is_ap_request(request, &ip_info))
         return httpd_resp_send_err(request, HTTPD_404_NOT_FOUND, "Not found");
     httpd_resp_set_status(request, "302 Found");
-#if CONFIG_APP_HTTP_SERVER_PORT == 80
-    httpd_resp_set_hdr(request, "Location", "http://192.168.4.1/");
-#else
     char location[64];
-    snprintf(location, sizeof(location), "http://192.168.4.1:%d/", CONFIG_APP_HTTP_SERVER_PORT);
-    httpd_resp_set_hdr(request, "Location", location);
+#if CONFIG_APP_HTTP_SERVER_PORT == 80
+    snprintf(location, sizeof(location), "http://" IPSTR "/", IP2STR(&ip_info.ip));
+#else
+    snprintf(location, sizeof(location), "http://" IPSTR ":%d/", IP2STR(&ip_info.ip), CONFIG_APP_HTTP_SERVER_PORT);
 #endif
+    httpd_resp_set_hdr(request, "Location", location);
     httpd_resp_set_hdr(request, "Cache-Control", "no-store");
     return httpd_resp_send(request, NULL, 0);
 }
