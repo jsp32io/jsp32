@@ -10,6 +10,30 @@ JSP32 是面向 ESP32-S3 的 JavaScript 可编程设备固件。你可以用脚�
 
 默认硬件配置为 ESP32-S3 N16R8：16 MB Flash、8 MB Octal PSRAM。
 
+## 快速开始（Get Started）
+
+获取 CLI：
+
+- 已有 Node.js 18+：运行 `npm install -g jsp32`。
+- 没有 Node.js：下载对应平台的 `jsp32-cli`，将 `jsp32` 可执行文件加入 `PATH`。
+
+通过 USB 连接开发板，烧录与硬件匹配的 factory 固件（替换为实际串口和文件名）：
+
+```sh
+jsp32 flash -p /dev/ttyACM0 -reset usb-jtag jsp32-factory.bin.gz
+```
+
+连接设备的 `JSP32-XXXX` Wi-Fi 热点，即可在终端控制 LED。
+示例控制 GPIO 2 上高电平点亮的 LED，请按实际接线替换 `2`：
+
+```sh
+export JSP32_BASE_URL=http://192.168.7.1
+jsp32 eval "gpio.write(2, 1)"  # 点亮
+jsp32 eval "gpio.write(2, 0)"  # 熄灭
+```
+
+其他连接方式见 [CLI 使用说明](cli/README.md)。
+
 ## 项目特色
 
 - **用 JavaScript 编写设备逻辑**：QuickJS 支持 ES 模块、Promise、定时器和事件监听。

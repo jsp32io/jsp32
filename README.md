@@ -12,6 +12,31 @@ console available for device management.
 
 The default hardware configuration is ESP32-S3 N16R8: 16 MB Flash and 8 MB Octal PSRAM.
 
+## Get Started
+
+Get the CLI:
+
+- With Node.js 18+: run `npm install -g jsp32`.
+- Without Node.js: download `jsp32-cli` for your platform and add the `jsp32` executable to your `PATH`.
+
+Connect the board over USB and flash a matching factory image
+(replace the port and filename with yours):
+
+```sh
+jsp32 flash -p /dev/ttyACM0 -reset usb-jtag jsp32-factory.bin.gz
+```
+
+Connect to the device's `JSP32-XXXX` Wi-Fi hotspot, then control an LED from your terminal.
+This example uses an active-high LED on GPIO 2; replace `2` with your LED's GPIO:
+
+```sh
+export JSP32_BASE_URL=http://192.168.7.1
+jsp32 eval "gpio.write(2, 1)"  # LED on
+jsp32 eval "gpio.write(2, 0)"  # LED off
+```
+
+For other connection options, see the [CLI guide](cli/README.md).
+
 ## Features
 
 - **Device logic in JavaScript**: QuickJS supports ES modules, Promises, timers,
