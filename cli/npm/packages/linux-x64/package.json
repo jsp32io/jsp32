@@ -1,0 +1,27 @@
+{
+  "name": "@jsp32/linux-x64",
+  "version": "0.1.0",
+  "description": "JSP32 CLI binary for linux/x64",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jsp32io/jsp32.git",
+    "directory": "cli/npm/packages/linux-x64"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  },
+  "scripts": {
+    "prepack": "node -e \"require('node:fs').accessSync('bin/jsp32')\""
+  }
+}

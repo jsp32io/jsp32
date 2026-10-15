@@ -57,6 +57,10 @@ and captive DNS and redirects follow the active AP address.
 | [CLI](cli/README.md) | Script evaluation, live logs, files and registers, NVS management, serial flashing and OTA firmware updates |
 | [HTTP API](components/app_http_server/README.md) | Integrating device management with your own tools and systems |
 
+Install the CLI with Node.js 18 or later using `npm install -g @jsp32/jsp32`
+or `npm install -g jsp32`. Prebuilt packages support Windows amd64/arm64,
+Linux amd64/arm64 and macOS arm64; see [npm installation](cli/npm/README.md).
+
 Web pages are available at `/`, `/network`, `/registers`, `/plugins`, and `/mqtt`.
 The device advertises `_jsp32._tcp.local` through mDNS. The desktop console can
 discover devices on the same local network or connect to an address entered

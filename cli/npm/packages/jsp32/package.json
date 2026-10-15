@@ -1,0 +1,27 @@
+{
+  "name": "jsp32",
+  "version": "0.1.0",
+  "description": "Public-name entry point for @jsp32/jsp32",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jsp32io/jsp32.git",
+    "directory": "cli/npm/packages/jsp32"
+  },
+  "bin": {
+    "jsp32": "bin/jsp32.cjs"
+  },
+  "files": [
+    "bin/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  },
+  "dependencies": {
+    "@jsp32/jsp32": "0.1.0"
+  }
+}

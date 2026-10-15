@@ -1,0 +1,27 @@
+{
+  "name": "@jsp32/darwin-arm64",
+  "version": "0.1.0",
+  "description": "JSP32 CLI binary for darwin/arm64",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jsp32io/jsp32.git",
+    "directory": "cli/npm/packages/darwin-arm64"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  },
+  "scripts": {
+    "prepack": "node -e \"require('node:fs').accessSync('bin/jsp32')\""
+  }
+}

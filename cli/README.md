@@ -5,6 +5,11 @@ by a JSP32 device. Build with Go 1.25 or later. Set the
 device URL through `JSP32_BASE_URL`; when its path does not end in an explicit
 `/api/vN` version, `/api/v1` is appended automatically.
 
+With Node.js 18 or later, install the prebuilt CLI using
+`npm install -g @jsp32/jsp32` or `npm install -g jsp32`, then run `jsp32 --help`.
+Packages support Windows amd64/arm64, Linux amd64/arm64 and macOS arm64.
+See [npm packages](npm/README.md) for platform details and packaging instructions.
+
 ```sh
 go build -o jsp32 .
 

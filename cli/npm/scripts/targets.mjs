@@ -1,0 +1,7 @@
+export const targets = [
+  { os: 'win32', cpu: 'x64', goos: 'windows', goarch: 'amd64' },
+  { os: 'win32', cpu: 'arm64', goos: 'windows', goarch: 'arm64' },
+  { os: 'linux', cpu: 'x64', goos: 'linux', goarch: 'amd64' },
+  { os: 'linux', cpu: 'arm64', goos: 'linux', goarch: 'arm64' },
+  { os: 'darwin', cpu: 'arm64', goos: 'darwin', goarch: 'arm64' },
+];

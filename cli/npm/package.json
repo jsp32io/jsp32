@@ -1,0 +1,38 @@
+{
+  "name": "@jsp32/jsp32",
+  "version": "0.1.0",
+  "description": "JSP32 command-line tools for serial flashing and device management",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jsp32io/jsp32.git",
+    "directory": "cli/npm"
+  },
+  "main": "bin/jsp32.cjs",
+  "bin": {
+    "jsp32": "bin/jsp32.cjs"
+  },
+  "files": [
+    "bin/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.cjs",
+    "pack:all": "npm run build && node scripts/pack.mjs",
+    "publish:all": "node scripts/publish.mjs"
+  },
+  "optionalDependencies": {
+    "@jsp32/win32-x64": "0.1.0",
+    "@jsp32/win32-arm64": "0.1.0",
+    "@jsp32/linux-x64": "0.1.0",
+    "@jsp32/linux-arm64": "0.1.0",
+    "@jsp32/darwin-arm64": "0.1.0"
+  }
+}

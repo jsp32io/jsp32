@@ -1,0 +1,27 @@
+{
+  "name": "@jsp32/linux-arm64",
+  "version": "0.1.0",
+  "description": "JSP32 CLI binary for linux/arm64",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jsp32io/jsp32.git",
+    "directory": "cli/npm/packages/linux-arm64"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  },
+  "scripts": {
+    "prepack": "node -e \"require('node:fs').accessSync('bin/jsp32')\""
+  }
+}

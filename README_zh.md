@@ -44,6 +44,10 @@ AP 默认地址为 `192.168.7.1`，掩码为 `255.255.255.0`。可在 NVS
 | [命令行客户端](cli/README.md) | 脚本求值、实时日志、文件和寄存器操作、NVS 管理、串口烧录和 OTA 固件更新 |
 | [HTTP API](components/app_http_server/README.md) | 将设备管理能力接入其他工具或系统 |
 
+使用 Node.js 18 或更新版本，通过 `npm install -g @jsp32/jsp32` 或
+`npm install -g jsp32` 安装命令行工具。预编译包支持 Windows amd64/arm64、
+Linux amd64/arm64 和 macOS arm64，详见 [npm 安装说明](cli/npm/README_zh.md)。
+
 网页入口为 `/`、`/network`、`/registers`、`/plugins` 和 `/mqtt`。
 设备通过 mDNS 广播 `_jsp32._tcp.local` 服务，桌面控制台可以自动发现同一局域网的设备，
 也支持手动输入地址。管理接口没有鉴权，应在可信网络中使用。
