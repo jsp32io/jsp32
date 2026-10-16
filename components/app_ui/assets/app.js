@@ -16,6 +16,15 @@ let config = null, status = null, applying = null, loadingConfig = false, scanIn
 let infoInFlight = false, statusInFlight = false;
 const selectedMode = () => $('input[name=mode]:checked').value;
 const openAP = () => $('input[name=ap-auth]:checked').value === 'open';
+document.querySelectorAll('[data-password-toggle]').forEach(button=>{
+  button.addEventListener('click',()=>{
+    const input=$(`#${button.dataset.passwordToggle}`), visible=input.type === 'password';
+    input.type=visible?'text':'password';
+    button.textContent=visible?'隐藏':'显示';
+    button.setAttribute('aria-pressed',String(visible));
+    button.setAttribute('aria-label',`${visible?'隐藏':'显示'}${input.id === 'ap-password'?'热点密码':' Wi-Fi 密码'}`);
+  });
+});
 const bytes = n => n >= 1048576 ? `${(n/1048576).toFixed(2)} MiB` : n >= 1024 ? `${(n/1024).toFixed(1)} KiB` : `${n} B`;
 function uptime(ms) { const s=Math.floor(ms/1000); return `${Math.floor(s/86400)} 天 ${Math.floor(s/3600)%24} 时 ${Math.floor(s/60)%60} 分 ${s%60} 秒`; }
 function node(tag, text, className) { const element=document.createElement(tag); if(text !== undefined) element.textContent=text; if(className) element.className=className; return element; }
@@ -85,7 +94,8 @@ function updateFields() {
   const scanDisabled=!status || status.pending || status.scanning || status.state === 'connecting' || scanInFlight;
   $('#scan').disabled=scanDisabled;
   $('#scan').textContent=scanInFlight || status?.scanning ? '正在扫描…' : '扫描';
-  $('#scan-hint').textContent=status?.state === 'connecting' ? '正在连接，完成后可扫描。' : '扫描不会改变已保存的模式。';
+  $('#scan-hint').textContent=status?.state === 'connecting' ? '正在连接，完成后可扫描。' : '';
+  $('#scan-hint').hidden=status?.state !== 'connecting';
   $('#apply').disabled=!config || status?.pending || status?.scanning || Boolean(applying);
   $('#apply').textContent=applying || status?.pending ? '正在应用…' : '应用更改';
 }

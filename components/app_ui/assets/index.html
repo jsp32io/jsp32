@@ -36,14 +36,14 @@
         <fieldset id="ap-fields" class="panel"><legend>设备热点 · AP</legend>
           <label class="field">热点名称<input id="ap-ssid" maxlength="32" required></label>
           <div class="choices"><label><input type="radio" name="ap-auth" value="open" checked>匿名开放</label><label><input type="radio" name="ap-auth" value="protected">密码保护</label></div>
-          <label id="ap-password-field" class="field" hidden>热点密码<input id="ap-password" type="password" maxlength="63" autocomplete="new-password"><small id="ap-password-hint">8–63 个字符</small></label>
+          <div id="ap-password-field" class="field" hidden><label for="ap-password">热点密码</label><div class="password-input"><input id="ap-password" type="password" maxlength="63" autocomplete="new-password"><button type="button" data-password-toggle="ap-password" aria-controls="ap-password" aria-label="显示热点密码" aria-pressed="false">显示</button></div><small id="ap-password-hint">8–63 个字符</small></div>
         </fieldset>
         <fieldset id="sta-fields" class="panel" hidden disabled><legend>外部 Wi-Fi · STA</legend>
           <div class="heading compact"><button id="scan" type="button">扫描</button></div>
           <p id="scan-hint" class="muted hint"></p><div id="networks" class="networks"></div>
           <label class="field">网络名称<input id="sta-ssid" maxlength="32" required></label>
           <label class="check"><input id="sta-open" type="checkbox">此网络无需密码</label>
-          <label id="sta-password-field" class="field">Wi-Fi 密码<input id="sta-password" type="password" maxlength="64" autocomplete="new-password"><small id="sta-password-hint">输入网络密码</small></label>
+          <div id="sta-password-field" class="field"><label for="sta-password">Wi-Fi 密码</label><div class="password-input"><input id="sta-password" type="password" maxlength="64" autocomplete="new-password"><button type="button" data-password-toggle="sta-password" aria-controls="sta-password" aria-label="显示 Wi-Fi 密码" aria-pressed="false">显示</button></div><small id="sta-password-hint">输入网络密码</small></div>
         </fieldset>
         <div class="actions"><button id="apply" class="primary" type="submit" disabled>应用更改</button></div>
       </form>
