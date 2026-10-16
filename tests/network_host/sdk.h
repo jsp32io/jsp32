@@ -21,6 +21,12 @@ typedef int esp_err_t;
 #define ESP_ERR_NVS_INVALID_LENGTH 7
 #define ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED 8
 #define CONFIG_NETWORK_AP_PREFIX "JSP32"
+#define CONFIG_NETWORK_SNTP_SERVER "pool.ntp.org"
+typedef struct { bool wait_for_sync; bool start; const char *server; } esp_sntp_config_t;
+#define ESP_NETIF_SNTP_DEFAULT_CONFIG(host) { .wait_for_sync=true, .start=true, .server=host }
+esp_err_t esp_netif_sntp_init(const esp_sntp_config_t *config);
+esp_err_t esp_netif_sntp_start(void);
+void esp_netif_sntp_deinit(void);
 #define CONFIG_NETWORK_AP_MAX_CONNECTIONS 4
 #define CONFIG_NETWORK_CONNECT_TIMEOUT_MS 30000
 #define CONFIG_NETWORK_MAX_RETRIES 2

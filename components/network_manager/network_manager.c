@@ -5,6 +5,7 @@
 #include <string.h>
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
 #include "esp_timer.h"
 #include "esp_wifi_default.h"
 
@@ -240,6 +241,20 @@ static void handle_got_ip(network_manager_t *manager, uint32_t ipv4)
     manager->status.fallback = false;
     xSemaphoreGive(manager->status_mutex);
     update_state(manager, NETWORK_STATE_ONLINE, ESP_OK);
+    esp_err_t time_error;
+    if (manager->sntp_initialized) {
+        time_error = esp_netif_sntp_start();
+    } else {
+        esp_err_t config_error = network_store_load_ntp_server(manager->ntp_server);
+        if (config_error != ESP_OK)
+            ESP_LOGW(TAG, "Invalid NTP configuration; using default: %s", esp_err_to_name(config_error));
+        esp_sntp_config_t time_config = ESP_NETIF_SNTP_DEFAULT_CONFIG(manager->ntp_server);
+        time_config.wait_for_sync = false;
+        time_error = esp_netif_sntp_init(&time_config);
+        manager->sntp_initialized = time_error == ESP_OK;
+    }
+    if (time_error != ESP_OK)
+        ESP_LOGW(TAG, "Time synchronization unavailable: %s", esp_err_to_name(time_error));
     publish_status(manager, NETWORK_EVENT_ONLINE);
 }
 
@@ -609,6 +624,7 @@ esp_err_t network_manager_stop(network_manager_t *manager)
     }
     if (manager->wifi_event_instance) esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, manager->wifi_event_instance);
     if (manager->ip_event_instance) esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, manager->ip_event_instance);
+    if (manager->sntp_initialized) esp_netif_sntp_deinit();
     if (manager->wifi_initialized) esp_wifi_deinit();
     if (manager->sta_netif) esp_netif_destroy_default_wifi(manager->sta_netif);
     if (manager->ap_netif) esp_netif_destroy_default_wifi(manager->ap_netif);

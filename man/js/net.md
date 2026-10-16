@@ -49,6 +49,7 @@ interface TCPListener {
   close(): Promise<void>;
 }
 
+net.id: string; // 只读；Wi-Fi STA MAC 的 12 位大写十六进制字符串，无分隔符
 net.dialTCP(options: DialTCPOptions): Promise<TCPConn>;
 net.dialTLS(options: DialTLSOptions): Promise<TCPConn>;
 net.listenTCP(options: {
@@ -121,8 +122,18 @@ Promise 仅在 DNS、TCP 建连、TLS 握手及服务器证书验证全部成功
 服务器验证始终开启，包含可信证书链、有效期及服务器名称校验。
 校验按照 TLS 后端的 SAN/CN 规则执行，不只比较证书的 legacy CN 字段。
 固件必须有正确的系统时间用于有效期验证；时间不正确时可能导致验证失败。
-当前项目尚未接入 SNTP，使用 TLS 前需通过原生时间同步或其他可信方式
-校准系统时间。`dialTLS()` 不设置系统时钟，也不绕过有效期验证。
+STA 获取 IP 后，固件通过 SNTP 自动校准系统时间，重连后重新发起同步。
+时间服务器可通过 NVS 命名空间 `jsp32_config` 的字符串键 `ntp_server` 修改，
+重启后生效。填写域名或 IP，不含协议、端口或路径，例如：
+
+```sh
+jsp32 nvs set jsp32_config ntp_server string ntp.aliyun.com
+jsp32 reboot
+```
+
+未设置或值无效时，使用 `CONFIG_NETWORK_SNTP_SERVER` 默认值（`pool.ntp.org`）。
+首次同步完成前，TLS 连接仍可能因时间不正确而失败，应稍后重试。
+`dialTLS()` 不设置系统时钟，也不绕过有效期验证。
 启用 `CONFIG_JS_NET_TLS_ENABLED` 会同时启用 mbedTLS 的证书有效期检查
 （`CONFIG_MBEDTLS_HAVE_TIME_DATE`），不会依赖此前固件的默认校验开关。
 

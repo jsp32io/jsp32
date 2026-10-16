@@ -168,6 +168,15 @@ on reboot. Removing `wifi_mode` returns to anonymous AP defaults on the next boo
 `rm`, `batch`, and `clear --yes` also support `jsp32_config`. This requires firmware
 with writable `jsp32_config` support.
 
+The `ntp_server` string selects the SNTP server after reboot. Use a hostname or
+IP address without a scheme, port, or path. Missing or invalid values use the
+firmware default (`pool.ntp.org` unless configured otherwise).
+
+```sh
+./jsp32 nvs set jsp32_config ntp_server string ntp.aliyun.com
+./jsp32 reboot
+```
+
 For example, configure AP addressing and reboot:
 
 ```sh

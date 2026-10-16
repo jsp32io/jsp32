@@ -1,5 +1,13 @@
 menu "Network manager"
 
+    config NETWORK_SNTP_SERVER
+        string "SNTP time server"
+        default "pool.ntp.org"
+        help
+            Synchronize system time after the station obtains an IP address.
+            A correct system clock is required for TLS certificate validation.
+            The jsp32_config NVS string ntp_server overrides this default.
+
     config NETWORK_AP_PREFIX
         string "Default device AP prefix"
         default "JSP32"

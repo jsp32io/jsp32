@@ -11,6 +11,7 @@
 
 #define NETWORK_AP_DEFAULT_IP "192.168.7.1"
 #define NETWORK_AP_DEFAULT_NETMASK "255.255.255.0"
+#define NETWORK_NTP_SERVER_CAPACITY 254
 
 typedef enum {
     NETWORK_COMMAND_STA_START,
@@ -68,6 +69,8 @@ struct network_manager {
     uint32_t dns_ip;
     volatile bool dns_stop_requested;
     bool wifi_initialized;
+    bool sntp_initialized;
+    char ntp_server[NETWORK_NTP_SERVER_CAPACITY];
     bool wifi_started;
     bool sta_started;
     bool apply_ready;
@@ -85,6 +88,7 @@ void network_store_defaults(network_settings_t *settings);
 esp_err_t network_store_load(network_settings_t *settings, bool *mode_saved);
 esp_err_t network_store_save(const network_settings_t *settings);
 esp_err_t network_store_load_ap_ip(esp_netif_ip_info_t *ip_info);
+esp_err_t network_store_load_ntp_server(char server[NETWORK_NTP_SERVER_CAPACITY]);
 esp_err_t network_manager_post(network_manager_t *manager,
                                const network_command_t *command,
                                TickType_t wait_ticks);

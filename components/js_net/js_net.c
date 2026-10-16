@@ -1,9 +1,11 @@
 #include "js_net.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "esp_timer.h"
+#include "esp_mac.h"
 #include "js_event.h"
 #include "js_runtime.h"
 #include "js_request.h"
@@ -707,6 +709,12 @@ static void module_deinit(js_runtime_t *runtime, JSContext *ctx, void *opaque)
 static esp_err_t module_init(js_runtime_t *runtime, JSContext *ctx, void *opaque)
 {
     (void)opaque;
+    uint8_t mac[6];
+    esp_err_t mac_error = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    if (mac_error != ESP_OK) return mac_error;
+    char device_id[13];
+    snprintf(device_id, sizeof(device_id), "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     s_net.runtime = runtime;
     js_request_table_init(&s_net.promises, ctx);
     js_request_table_init(&s_net.closes, ctx);
@@ -740,6 +748,12 @@ static esp_err_t module_init(js_runtime_t *runtime, JSContext *ctx, void *opaque
     JSValue net = JS_NewObject(ctx);
     if (JS_IsException(net)) { JS_FreeValue(ctx, global); JS_FreeValue(ctx, s_net.error_constructor); return ESP_ERR_NO_MEM; }
     JS_SetPropertyFunctionList(ctx, net, net_methods, sizeof(net_methods) / sizeof(*net_methods));
+    if (JS_DefinePropertyValueStr(ctx, net, "id", JS_NewString(ctx, device_id), JS_PROP_ENUMERABLE) < 0) {
+        JS_FreeValue(ctx, net);
+        JS_FreeValue(ctx, global);
+        JS_FreeValue(ctx, s_net.error_constructor);
+        return ESP_ERR_NO_MEM;
+    }
     int result = JS_SetPropertyStr(ctx, global, "net", net);
     if (result >= 0) result = JS_SetPropertyStr(ctx, global, "SocketError", JS_DupValue(ctx, s_net.error_constructor));
     JS_FreeValue(ctx, global);

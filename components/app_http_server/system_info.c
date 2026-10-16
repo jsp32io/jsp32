@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 
 #include "cJSON.h"
 #include "esp_app_desc.h"
@@ -125,6 +126,9 @@ static esp_err_t system_info_handler(httpd_req_t *request)
     cJSON_AddStringToObject(root, "board", "ESP32-S3 N16R8");
     cJSON_AddStringToObject(root, "target", CONFIG_IDF_TARGET);
     cJSON_AddNumberToObject(root, "uptimeMs", esp_timer_get_time() / 1000);
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    cJSON_AddNumberToObject(root, "currentTimeMs", (double)now.tv_sec * 1000 + now.tv_usec / 1000);
     esp_reset_reason_t reset_reason = esp_reset_reason();
     cJSON_AddStringToObject(root, "resetReason",
                             reset_reason_name(reset_reason));

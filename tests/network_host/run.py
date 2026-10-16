@@ -7,7 +7,7 @@ import tempfile
 root = Path(__file__).resolve().parents[2]
 with tempfile.TemporaryDirectory(prefix='jsp32-network-test-') as directory:
     temp = Path(directory)
-    headers = ['esp_err.h', 'esp_event.h', 'esp_wifi.h', 'esp_wifi_default.h', 'esp_netif.h',
+    headers = ['esp_err.h', 'esp_event.h', 'esp_wifi.h', 'esp_wifi_default.h', 'esp_netif.h', 'esp_netif_sntp.h',
                'esp_timer.h', 'esp_log.h', 'esp_mac.h', 'esp_http_server.h', 'sdkconfig.h', 'nvs.h',
                'freertos/FreeRTOS.h', 'freertos/queue.h', 'freertos/semphr.h', 'freertos/task.h',
                'lwip/inet.h', 'lwip/sockets.h']

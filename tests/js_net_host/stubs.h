@@ -29,6 +29,8 @@ typedef int esp_err_t;
 #define ESP_ERR_INVALID_STATE 2
 #define ESP_ERR_NOT_SUPPORTED 3
 #define ESP_ERR_INVALID_ARG 4
+#define ESP_MAC_WIFI_STA 0
+esp_err_t esp_read_mac(uint8_t *mac, int type);
 #define likely(x) (x)
 #define unlikely(x) (x)
 #define ESP_LOGE(...) ((void)0)

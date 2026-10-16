@@ -8,9 +8,38 @@
 #include "esp_mac.h"
 #include "nvs.h"
 #include "lwip/inet.h"
+#include "lwip/sockets.h"
 
 #define CONFIG_NAMESPACE "jsp32_config"
 #define MODE_KEY "wifi_mode"
+
+esp_err_t network_store_load_ntp_server(char server[NETWORK_NTP_SERVER_CAPACITY])
+{
+    if (!server) return ESP_ERR_INVALID_ARG;
+    strlcpy(server, CONFIG_NETWORK_SNTP_SERVER, NETWORK_NTP_SERVER_CAPACITY);
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(CONFIG_NAMESPACE, NVS_READONLY, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;
+    if (err != ESP_OK) return err;
+    char configured[NETWORK_NTP_SERVER_CAPACITY];
+    size_t size = sizeof(configured);
+    err = nvs_get_str(handle, "ntp_server", configured, &size);
+    nvs_close(handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;
+    if (err != ESP_OK) return err;
+    if (!configured[0]) return ESP_ERR_INVALID_ARG;
+    if (strchr(configured, ':')) {
+        uint8_t ipv6[16];
+        if (inet_pton(AF_INET6, configured, ipv6) != 1) return ESP_ERR_INVALID_ARG;
+    }
+    for (const char *p = configured; *p; ++p) {
+        if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+              (*p >= '0' && *p <= '9') || *p == '-' || *p == '.' || *p == ':'))
+            return ESP_ERR_INVALID_ARG;
+    }
+    strlcpy(server, configured, NETWORK_NTP_SERVER_CAPACITY);
+    return ESP_OK;
+}
 
 static bool parse_ipv4(const char *text, esp_ip4_addr_t *address)
 {

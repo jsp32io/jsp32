@@ -58,6 +58,11 @@ jsp32 eval "gpio.write(2, 0)"  # 熄灭
 未保存网络模式的设备启动为 `JSP32-XXXX` 热点。连接后，在浏览器打开
 `http://192.168.7.1/`。网络页可以选择仅热点（AP）、连接外部 Wi-Fi（STA），
 或同时运行两者（APSTA）；网络设置保存在设备中，重启后恢复。
+连接外部 Wi-Fi 后，SNTP 自动同步系统时间，用于 TLS 证书有效期校验。
+可修改 NVS 命名空间 `jsp32_config` 的字符串键 `ntp_server`，重启后生效。
+未设置或配置无效时，使用 `CONFIG_NETWORK_SNTP_SERVER` 默认值（`pool.ntp.org`）。
+`GET /api/v1/system/info` 返回 `currentTimeMs`，表示设备当前的 Unix 毫秒时间戳。
+概览页按浏览器本地时区以 `yyyy-MM-dd HH:mm:ss` 显示，随设备信息刷新。
 AP 默认地址为 `192.168.7.1`，掩码为 `255.255.255.0`。可在 NVS
 命名空间 `jsp32_config` 中设置字符串键 `ap_ip` 和 `ap_netmask`，重启后生效。
 缺失的键使用默认值；地址或掩码无效时，整组回退为默认值。AP 网关为自身地址，

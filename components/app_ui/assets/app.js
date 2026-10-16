@@ -3,7 +3,7 @@ const $ = selector => document.querySelector(selector);
 const modeLabels = {ap: '仅 AP', sta: '仅 STA', apsta: 'APSTA'};
 const stateLabels = {initializing: '初始化', ready: '热点已开启', connecting: '正在连接 Wi-Fi', online: 'Wi-Fi 已连接', applying: '正在应用', fallback: '已恢复 AP', error: '连接失败', stopping: '正在停止'};
 const labels = {
-  board:'核心板',target:'目标芯片',uptimeMs:'运行时间',resetReason:'复位原因',resetReasonCode:'复位原因代码',
+  board:'核心板',target:'目标芯片',uptimeMs:'运行时间',currentTimeMs:'系统时间',resetReason:'复位原因',resetReasonCode:'复位原因代码',
   chip:'芯片',model:'型号',modelCode:'型号代码',cores:'核心数',revision:'芯片修订',cpuFrequencyMHz:'CPU 频率 (MHz)',
   features:'功能',wifi2_4GHz:'2.4 GHz Wi-Fi',bluetoothLE:'蓝牙 LE',bluetoothClassic:'经典蓝牙',embeddedFlash:'内置 Flash',embeddedPsram:'内置 PSRAM',
   flash:'Flash',psram:'PSRAM',size:'容量',configuredSize:'配置容量',mode:'模式',frequency:'频率',initialized:'已初始化',frequencyMHz:'频率 (MHz)',
@@ -27,6 +27,13 @@ document.querySelectorAll('[data-password-toggle]').forEach(button=>{
 });
 const bytes = n => n >= 1048576 ? `${(n/1048576).toFixed(2)} MiB` : n >= 1024 ? `${(n/1024).toFixed(1)} KiB` : `${n} B`;
 function uptime(ms) { const s=Math.floor(ms/1000); return `${Math.floor(s/86400)} 天 ${Math.floor(s/3600)%24} 时 ${Math.floor(s/60)%60} 分 ${s%60} 秒`; }
+function dateTime(ms) {
+  if(typeof ms !== 'number' || !Number.isFinite(ms))return '—';
+  const date=new Date(ms);
+  if(Number.isNaN(date.getTime()))return '—';
+  const pad=value=>String(value).padStart(2,'0');
+  return `${String(date.getFullYear()).padStart(4,'0')}-${pad(date.getMonth()+1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
 function node(tag, text, className) { const element=document.createElement(tag); if(text !== undefined) element.textContent=text; if(className) element.className=className; return element; }
 function message(selector, text, error=false) { const element=$(selector); element.textContent=text; element.classList.toggle('error', error); }
 function row(list, name, value) { const element=node('div', undefined, 'row'); element.append(node('dt',name),node('dd',value)); list.append(element); }
@@ -42,6 +49,7 @@ function displayValue(key,value,parent) {
   if(value === null) return '—';
   if(typeof value === 'boolean') return value ? '是' : '否';
   if(key === 'uptimeMs') return uptime(value);
+  if(key === 'currentTimeMs') return dateTime(value);
   if(key === 'address') return `0x${value.toString(16).toUpperCase()}`;
   if(['size','configuredSize','free','minimumFree','total','largestBlock'].includes(key) && typeof value === 'number') return bytes(value);
   if((key === 'mode' && parent === 'network') || key === 'savedMode') return modeLabels[value] || value;
@@ -66,7 +74,7 @@ function renderInfo(info) {
   const entries=[['设备', info.board],['固件',info.firmware?.version],['运行时间',uptime(info.uptimeMs)],['空闲内存',bytes(info.heap?.free || 0)]];
   for(const [label,value] of entries){const card=node('div');card.append(node('span',label),node('strong',value || '—'));$('#summary').append(card);}
   const target=$('#system-info');target.replaceChildren();
-  const device={};for(const key of ['board','target','uptimeMs','resetReason','resetReasonCode'])if(key in info)device[key]=info[key];
+  const device={};for(const key of ['board','target','uptimeMs','currentTimeMs','resetReason','resetReasonCode'])if(key in info)device[key]=info[key];
   const basics=node('section',undefined,'panel');basics.append(node('h2','设备'));renderObject(basics,device);target.append(basics);
   for(const [key,value] of Object.entries(info)) {
     if(key in device) continue;

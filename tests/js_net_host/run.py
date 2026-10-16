@@ -14,7 +14,7 @@ idf = Path(os.environ.get("IDF_PATH", "/opt/esp/v6.1/esp-idf"))
 mbedtls = idf / "components/mbedtls"
 with tempfile.TemporaryDirectory(prefix="ost-js-net-test-") as directory:
     temp = Path(directory)
-    for name in ("esp_err.h", "esp_check.h", "esp_log.h", "sdkconfig.h", "esp_timer.h", "js_runtime.h", "js_event.h",
+    for name in ("esp_err.h", "esp_check.h", "esp_log.h", "sdkconfig.h", "esp_timer.h", "esp_mac.h", "js_runtime.h", "js_event.h",
                  "freertos/FreeRTOS.h", "freertos/queue.h", "freertos/semphr.h",
                  "freertos/task.h", "lwip/inet.h", "lwip/netdb.h", "lwip/sockets.h"):
         header = temp / name

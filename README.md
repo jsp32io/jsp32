@@ -71,6 +71,13 @@ A device without a saved network mode starts a `JSP32-XXXX` hotspot. Connect to 
 and open `http://192.168.7.1/` in your browser. The network page supports hotspot
 mode (AP), connection to an external Wi-Fi network (STA), or both (APSTA).
 Network settings are saved on the device and restored on reboot.
+After Wi-Fi connects, SNTP synchronizes the system clock for TLS certificate
+validation. Set the `ntp_server` string in the `jsp32_config` NVS namespace and
+reboot to change the server. When unset or invalid, it uses the
+`CONFIG_NETWORK_SNTP_SERVER` default (`pool.ntp.org`).
+`GET /api/v1/system/info` returns `currentTimeMs`, the device's current Unix time
+in milliseconds. The overview displays it as `yyyy-MM-dd HH:mm:ss` in the
+browser's local time zone and refreshes it with the device information.
 The AP defaults to `192.168.7.1` with netmask `255.255.255.0`. Set string keys
 `ap_ip` and `ap_netmask` in NVS namespace `jsp32_config` to override them; changes
 take effect after reboot. Missing keys use their defaults; an invalid address or

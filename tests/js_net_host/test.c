@@ -14,6 +14,15 @@
 #undef getaddrinfo
 #undef send
 
+static esp_err_t mac_result = ESP_OK;
+esp_err_t esp_read_mac(uint8_t *mac, int type)
+{
+    assert(type == ESP_MAC_WIFI_STA);
+    const uint8_t address[] = {0x00, 0x0a, 0xb2, 0xcd, 0xe3, 0xff};
+    memcpy(mac, address, sizeof(address));
+    return mac_result;
+}
+
 struct host_queue {
     pthread_mutex_t lock;
     pthread_cond_t changed;
@@ -262,7 +271,18 @@ int main(int argc, char **argv)
     JS_SetPropertyStr(ctx, global, "sendMode", JS_NewCFunction(ctx, set_send_mode, "sendMode", 1));
     JS_FreeValue(ctx, global);
     assert(js_net_register() == ESP_OK);
+    mac_result = ESP_FAIL;
+    assert(module_init(&runtime, ctx, module_opaque) == ESP_FAIL);
+    mac_result = ESP_OK;
     assert(module_init(&runtime, ctx, module_opaque) == ESP_OK);
+
+    run(&runtime,
+        "(async()=>{check(net.id==='000AB2CDE3FF');"
+        "check(/^[0-9A-F]{12}$/.test(net.id));"
+        "const descriptor=Object.getOwnPropertyDescriptor(net,'id');"
+        "check(!descriptor.writable&&!descriptor.configurable);"
+        "check(!Reflect.set(net,'id','FFFFFFFFFFFF'));"
+        "check(net.id==='000AB2CDE3FF');})()");
 
     run(&runtime,
         "(async()=>{"

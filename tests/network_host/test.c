@@ -30,6 +30,8 @@ static int netif_ap = 1, netif_sta = 2;
 static esp_netif_ip_info_t ap_ip_info;
 static bool dhcp_stopped, ap_ip_present, ap_mask_present;
 static char stored_ap_ip[64], stored_ap_mask[64];
+static bool ntp_present;
+static char stored_ntp_server[300];
 static uint32_t request_local_ip;
 static int8_t radio_power = 52;
 static uint32_t station_ip = 0x6401a8c0;
@@ -39,6 +41,19 @@ static app_http_info_provider_fn provider;
 static void *provider_context;
 static httpd_uri_t routes[20];
 static size_t route_count;
+static unsigned sntp_inits, sntp_starts, sntp_deinits;
+static esp_err_t sntp_result;
+
+esp_err_t esp_netif_sntp_init(const esp_sntp_config_t *config) {
+ assert(config->start&&!config->wait_for_sync);
+ assert(strcmp(config->server,ntp_present?stored_ntp_server:CONFIG_NETWORK_SNTP_SERVER)==0);
+ ++sntp_inits;return sntp_result;
+}
+esp_err_t esp_netif_sntp_start(void) {++sntp_starts;return ESP_OK;}
+void esp_netif_sntp_deinit(void) {++sntp_deinits;}
+esp_err_t esp_event_handler_instance_unregister(esp_event_base_t base,int32_t id,esp_event_handler_instance_t instance) {return ESP_OK;}
+esp_err_t esp_wifi_deinit(void) {return ESP_OK;}
+void esp_netif_destroy_default_wifi(esp_netif_t *netif) {}
 
 size_t strlcpy(char *out, const char *in, size_t size) { size_t length=strlen(in);if(size){size_t n=length<size-1?length:size-1;memcpy(out,in,n);out[n]=0;}return length; }
 const char *esp_err_to_name(esp_err_t err) { return err ? "TEST_ERROR" : "ESP_OK"; }
@@ -84,7 +99,7 @@ esp_err_t network_dns_start(network_manager_t *manager) {return ESP_OK;}
 void network_dns_stop(network_manager_t *manager) {}
 esp_err_t nvs_open(const char *name,int access,nvs_handle_t *handle) {
  *handle=1;assert(strcmp(name,"jsp32_config")==0);
- bool present=disk_present||ap_ip_present||ap_mask_present;
+ bool present=disk_present||ap_ip_present||ap_mask_present||ntp_present;
  for(size_t i=0;i<4;++i)present|=disk_strings[i];
  return present||access==NVS_READWRITE?ESP_OK:ESP_ERR_NVS_NOT_FOUND;
 }
@@ -107,6 +122,7 @@ esp_err_t nvs_get_str(nvs_handle_t handle,const char *key,char *out,size_t *size
  const char *value;
  if(strcmp(key,"ap_ip")==0){if(!ap_ip_present)return ESP_ERR_NVS_NOT_FOUND;value=stored_ap_ip;}
  else if(strcmp(key,"ap_netmask")==0){if(!ap_mask_present)return ESP_ERR_NVS_NOT_FOUND;value=stored_ap_mask;}
+ else if(strcmp(key,"ntp_server")==0){if(!ntp_present)return ESP_ERR_NVS_NOT_FOUND;value=stored_ntp_server;}
  else {int i=string_index(key);if(!disk_strings[i])return ESP_ERR_NVS_NOT_FOUND;value=disk_string(i);}
  size_t needed=strlen(value)+1;
  if(!out){*size=needed;return ESP_OK;}
@@ -147,6 +163,16 @@ static void start_sta(network_manager_t *manager) {network_command_t command={.t
 static void configure(network_manager_t *manager,const network_settings_t *settings) {uint32_t id;assert(network_manager_apply(manager,settings,&id)==ESP_OK);assert(manager->status.pending);drain(manager);now_us+=1000001;handle_timers(manager);}
 
 int main(void) {
+ char ntp_server[NETWORK_NTP_SERVER_CAPACITY];
+ assert(network_store_load_ntp_server(ntp_server)==ESP_OK&&strcmp(ntp_server,CONFIG_NETWORK_SNTP_SERVER)==0);
+ ntp_present=true;
+ const char *ntp_values[]={"ntp.example.com","192.168.3.1","2001:db8::123"};
+ for(size_t i=0;i<sizeof(ntp_values)/sizeof(*ntp_values);++i){strcpy(stored_ntp_server,ntp_values[i]);assert(network_store_load_ntp_server(ntp_server)==ESP_OK&&strcmp(ntp_server,ntp_values[i])==0);}
+ const char *invalid_ntp[]={"","ntp server","https://ntp.example.com","ntp.example.com/path","[2001:db8::1]","ntp.example.com:123","192.168.3.1:123"};
+ for(size_t i=0;i<sizeof(invalid_ntp)/sizeof(*invalid_ntp);++i){strcpy(stored_ntp_server,invalid_ntp[i]);assert(network_store_load_ntp_server(ntp_server)==ESP_ERR_INVALID_ARG&&strcmp(ntp_server,CONFIG_NETWORK_SNTP_SERVER)==0);}
+ memset(stored_ntp_server,'a',sizeof(stored_ntp_server)-1);stored_ntp_server[sizeof(stored_ntp_server)-1]=0;
+ assert(network_store_load_ntp_server(ntp_server)==ESP_ERR_NVS_INVALID_LENGTH&&strcmp(ntp_server,CONFIG_NETWORK_SNTP_SERVER)==0);
+ ntp_present=false;
  esp_netif_ip_info_t ap_info;
  assert(network_store_load_ap_ip(&ap_info)==ESP_OK);
  assert(ap_info.ip.addr==inet_addr("192.168.7.1")&&ap_info.gw.addr==ap_info.ip.addr);
@@ -204,8 +230,15 @@ int main(void) {
  configure(&manager,&candidate);start_sta(&manager);now_us+=CONFIG_NETWORK_CONNECT_TIMEOUT_MS*1000LL+1;handle_timers(&manager);
  assert(manager.status.fallback&&!manager.status.pending&&manager.status.last_error==ESP_ERR_TIMEOUT&&commits==2&&radio_mode==WIFI_MODE_APSTA);
  // Successful APSTA persists the selected mode and never auto-closes AP.
+ assert(sntp_inits==0&&sntp_starts==0);
+ ntp_present=true;strcpy(stored_ntp_server,"ntp.example.com");
+ sntp_result=ESP_FAIL;
  candidate=manager.saved;candidate.mode=NETWORK_MODE_APSTA;strcpy(candidate.sta_ssid,"router");strcpy(candidate.sta_password,"router-password");configure(&manager,&candidate);start_sta(&manager);associated=true;handle_got_ip(&manager,station_ip);assert(commits==3&&disk_record.mode==NETWORK_MODE_APSTA&&!manager.status.pending);assert(manager.status.has_ipv4&&radio_mode==WIFI_MODE_APSTA);
+ assert(sntp_inits==1&&!manager.sntp_initialized&&manager.status.state==NETWORK_STATE_ONLINE);
+ sntp_result=ESP_OK;handle_got_ip(&manager,station_ip);
+ assert(sntp_inits==2&&manager.sntp_initialized);
  network_command_t lost_ip={.type=NETWORK_COMMAND_LOST_IP,.session=manager.session};handle_command(&manager,&lost_ip);assert(!manager.status.has_ipv4&&manager.status.state==NETWORK_STATE_STA_CONNECTING);handle_got_ip(&manager,station_ip);assert(manager.status.has_ipv4&&commits==3);
+ assert(sntp_inits==2&&sntp_starts==1);
  now_us+=120000000;handle_timers(&manager);assert(radio_mode==WIFI_MODE_APSTA);assert(network_manager_scan(&manager)==ESP_OK);assert(network_manager_apply(&manager,&candidate,&id)==ESP_ERR_INVALID_STATE);drain(&manager);assert(!manager.status.scanning&&radio_mode==WIFI_MODE_APSTA&&manager.status.has_ipv4&&commits==3);
  // Storage failure must not report success or overwrite a saved mode.
  commit_result=ESP_FAIL;candidate.mode=NETWORK_MODE_AP;configure(&manager,&candidate);assert(manager.status.fallback&&manager.status.last_error==ESP_FAIL);assert(commits==3&&disk_record.mode==NETWORK_MODE_APSTA);commit_result=ESP_OK;
@@ -265,5 +298,10 @@ int main(void) {
  // Initial-save failures erase newly-created keys and preserve anonymous defaults.
  disk_present=false;memset(disk_strings,0,sizeof(disk_strings));memset(&disk_record,0,sizeof(disk_record));network_store_defaults(&settings);
  fail_string_write=string_writes+3;assert(network_store_save(&settings)==ESP_FAIL);fail_string_write=0;assert(!disk_present);for(size_t i=0;i<4;++i)assert(!disk_strings[i]);assert(network_store_load(&settings,&saved)==ESP_OK&&!saved&&!settings.ap_password[0]);
- puts("network host tests passed: separate NVS keys, defaults, persistence, three policies, all-mode scanning, AP without STA connection, rollback, HTTP and secret redaction");return 0;
+ network_manager_t *shutdown=calloc(1,sizeof(*shutdown));assert(shutdown);
+ shutdown->sntp_initialized=true;
+ assert(network_manager_stop(shutdown)==ESP_OK&&sntp_deinits==1);
+ shutdown=calloc(1,sizeof(*shutdown));assert(shutdown);
+ assert(network_manager_stop(shutdown)==ESP_OK&&sntp_deinits==1);
+ puts("network host tests passed: separate NVS keys, defaults, persistence, three policies, all-mode scanning, AP without STA connection, rollback, HTTP, secret redaction and SNTP lifecycle");return 0;
 }
